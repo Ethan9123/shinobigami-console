@@ -243,6 +243,136 @@ export function parseCharacterText(input: string): ParsedCharacterText {
   return result;
 }
 
+export type BuildRequirements = {
+  requiredSkills: number;
+  requiredNinpoSlots: number;
+  requiredTools: number;
+};
+
+export type PreflightCharacter = {
+  id: string;
+  name: string;
+  role: "PC" | "NPC";
+  faction: string;
+  skills: string[];
+  ninpoIds: string[];
+  mission: string;
+  secret: string;
+  tools: Record<string, number>;
+};
+
+export type PreflightHandout = {
+  id: string;
+  slot: string;
+  assignedCharacterId: string;
+  recommendedFaction: string;
+  delivered: boolean;
+  reviewed: boolean;
+  questionsResolved: boolean;
+};
+
+export type ReadinessIssue = {
+  code: string;
+  level: "blocker" | "warning";
+  message: string;
+  characterId?: string;
+  handoutId?: string;
+};
+
+export function evaluateCharacterBuild(
+  character: PreflightCharacter,
+  requirements: BuildRequirements,
+): ReadinessIssue[] {
+  const issues: ReadinessIssue[] = [];
+  const ninpoSlots = new Set(character.ninpoIds.filter((id) => id !== "close")).size;
+  const toolCount = Object.values(character.tools).reduce((sum, count) => sum + Math.max(0, Number(count) || 0), 0);
+
+  if (!character.mission.trim()) {
+    issues.push({ code: "missing-mission", level: "blocker", characterId: character.id, message: `${character.name} 尚未填写使命。` });
+  }
+  if (!character.secret.trim()) {
+    issues.push({ code: "missing-secret", level: "blocker", characterId: character.id, message: `${character.name} 尚未确认秘密。` });
+  }
+  if (!character.ninpoIds.includes("close")) {
+    issues.push({ code: "missing-basic-attack", level: "blocker", characterId: character.id, message: `${character.name} 缺少不占槽位的接近战攻击。` });
+  }
+  if (character.skills.length !== requirements.requiredSkills) {
+    issues.push({
+      code: "skill-quota",
+      level: "warning",
+      characterId: character.id,
+      message: `${character.name} 目前有 ${character.skills.length} 项特技；本团检查值为 ${requirements.requiredSkills}。`,
+    });
+  }
+  if (ninpoSlots !== requirements.requiredNinpoSlots) {
+    issues.push({
+      code: "ninpo-quota",
+      level: "warning",
+      characterId: character.id,
+      message: `${character.name} 目前占用 ${ninpoSlots} 个忍法槽；本团检查值为 ${requirements.requiredNinpoSlots}。`,
+    });
+  }
+  if (toolCount !== requirements.requiredTools) {
+    issues.push({
+      code: "tool-quota",
+      level: "warning",
+      characterId: character.id,
+      message: `${character.name} 目前携带 ${toolCount} 个忍具；本团检查值为 ${requirements.requiredTools}。`,
+    });
+  }
+  return issues;
+}
+
+export function evaluateSessionReadiness(
+  characters: PreflightCharacter[],
+  handouts: PreflightHandout[],
+  playerCount: number,
+  requirements: BuildRequirements,
+): ReadinessIssue[] {
+  const issues: ReadinessIssue[] = [];
+  const pcs = characters.filter((character) => character.role === "PC");
+  if (pcs.length !== playerCount) {
+    issues.push({ code: "player-count", level: "blocker", message: `公告人数为 ${playerCount}，当前有 ${pcs.length} 位 PC。` });
+  }
+  if (handouts.length !== playerCount) {
+    issues.push({ code: "handout-count", level: "blocker", message: `需要 ${playerCount} 份 PC 位，当前有 ${handouts.length} 份。` });
+  }
+
+  const assigned = handouts.map((handout) => handout.assignedCharacterId).filter(Boolean);
+  const duplicateIds = new Set(assigned.filter((id, index) => assigned.indexOf(id) !== index));
+  for (const handout of handouts) {
+    const character = pcs.find((item) => item.id === handout.assignedCharacterId);
+    if (!character) {
+      issues.push({ code: "unassigned-handout", level: "blocker", handoutId: handout.id, message: `${handout.slot} 尚未分配给有效 PC。` });
+      continue;
+    }
+    if (duplicateIds.has(character.id)) {
+      issues.push({ code: "duplicate-assignment", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${character.name} 被重复分配到多个 PC 位。` });
+    }
+    if (!handout.delivered) {
+      issues.push({ code: "secret-undelivered", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${handout.slot} 的秘密尚未确认送达。` });
+    }
+    if (!handout.reviewed) {
+      issues.push({ code: "card-unreviewed", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${character.name} 的角色卡尚未通过 GM 复核。` });
+    }
+    if (!handout.questionsResolved) {
+      issues.push({ code: "questions-open", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${handout.slot} 仍有秘密或规则问题待确认。` });
+    }
+    const recommended = handout.recommendedFaction.trim();
+    if (recommended && recommended !== "不限" && character.faction.trim() !== recommended) {
+      issues.push({
+        code: "faction-recommendation",
+        level: "warning",
+        characterId: character.id,
+        handoutId: handout.id,
+        message: `${handout.slot} 推荐「${recommended}」，当前角色为「${character.faction || "未填写"}」。`,
+      });
+    }
+  }
+  for (const character of pcs) issues.push(...evaluateCharacterBuild(character, requirements));
+  return issues;
+}
+
 export function makeLife(): Record<FieldName, boolean> {
   return Object.fromEntries(FIELD_NAMES.map((field) => [field, true])) as Record<FieldName, boolean>;
 }

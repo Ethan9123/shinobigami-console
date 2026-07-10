@@ -6,6 +6,7 @@ import {
   COMMON_NINPO,
   CONDITIONS,
   EMOTION_PAIRS,
+  evaluateSessionReadiness,
   FIELD_NAMES,
   FieldName,
   findSkillPosition,
@@ -17,100 +18,49 @@ import {
   SKILL_TABLE,
   uid,
 } from "../lib/rules";
-
-type Character = {
-  id: string;
-  name: string;
-  role: "PC" | "NPC";
-  faction: string;
-  rank: string;
-  plot: number | null;
-  active: boolean;
-  extraLife: number;
-  life: Record<FieldName, boolean>;
-  skills: string[];
-  ninpoIds: string[];
-  conditions: string[];
-  spentCost: number;
-  usedNinpoIds: string[];
-  mission: string;
-  secret: string;
-  ougi: string;
-  closedGaps: boolean[];
-  acted: boolean;
-  tools: Record<"兵粮丸" | "神通丸" | "遁甲符", number>;
-};
-
-type Emotion = { id: string; fromId: string; toId: string; label: string; positive: boolean; used: boolean };
-type IntelKind = "秘密" | "居所" | "奥义";
-type IntelRecord = { subjectId: string; kind: IntelKind; knownBy: string[] };
-type SceneAction = "未定" | "回复判定" | "情报判定" | "感情判定" | "战斗" | "计划判定" | "辅助判定";
-type SceneCue = { id: string; title: string; cycle: number; scene: number; done: boolean };
-type Tracker = { id: string; name: string; value: number; max: number };
-type LogEntry = { id: string; round: number; cycle?: number; tone: "system" | "roll" | "action" | "danger"; text: string };
-type Phase = "导入" | "主要" | "高潮";
-type GameState = {
-  characters: Character[];
-  selectedId: string;
-  round: number;
-  revealed: boolean;
-  logs: LogEntry[];
-  phase: Phase;
-  turnIndex: number;
-  customNinpo: Ninpo[];
-  cycle: number;
-  sceneNumber: number;
-  sceneOwnerId: string;
-  sceneParticipantIds: string[];
-  sceneAction: SceneAction;
-  sceneNote: string;
-  emotions: Emotion[];
-  intel: IntelRecord[];
-  cues: SceneCue[];
-  trackers: Tracker[];
-};
+import {
+  advanceResolutionAfterRoll,
+  createInitialGameState,
+  makeDefaultHandouts,
+  normalizeGameState,
+  starterLogs,
+} from "../lib/session";
+import type {
+  Character,
+  Emotion,
+  GameState,
+  Handout,
+  IntelKind,
+  IntelRecord,
+  LogEntry,
+  Phase,
+  Resolution,
+  SceneAction,
+  SceneCue,
+  SessionBrief,
+} from "../lib/session";
 
 const STORAGE_KEY = "shinobigami-console-v1";
-
-const initialCharacters: Character[] = [
-  {
-    id: "pc-tsukikage", name: "月影", role: "PC", faction: "鞍马神流", rank: "中忍", plot: null, active: true,
-    extraLife: 0, life: makeLife(), skills: ["刀术", "走法", "见敌术", "潜伏术", "意气", "第六感"],
-    ninpoIds: ["close", "cross", "emotion"], conditions: [], spentCost: 0, usedNinpoIds: [],
-    mission: "守住目标，并查明敌人的秘密。", secret: "尚未公开的个人秘密。", ougi: "月下无影", closedGaps: [false, true, false, false, false], acted: false,
-    tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 1 },
-  },
-  {
-    id: "npc-kirikage", name: "雾隐", role: "NPC", faction: "隐忍血统", rank: "中忍", plot: null, active: true,
-    extraLife: 0, life: makeLife(), skills: ["毒术", "潜伏术", "咒术", "异形化", "身体操术", "调查术"],
-    ninpoIds: ["close", "poison", "shoot"], conditions: [], spentCost: 0, usedNinpoIds: [],
-    mission: "击败妨碍计划的忍者。", secret: "真正的目的仍被迷雾掩盖。", ougi: "百毒夜行", closedGaps: [false, false, false, false, true], acted: false,
-    tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 1 },
-  },
-];
-
-const starterLogs: LogEntry[] = [
-  { id: "welcome", round: 1, tone: "system", text: "控制台已就绪。先确认角色特技，再为参战者设置布局。" },
-];
+const INITIAL_STATE = createInitialGameState();
 
 function cloneState(state: GameState): GameState {
   return JSON.parse(JSON.stringify(state)) as GameState;
 }
 
 export default function ShinobigamiConsole() {
-  const [characters, setCharacters] = useState(initialCharacters);
-  const [selectedId, setSelectedId] = useState(initialCharacters[0].id);
-  const [round, setRound] = useState(1);
-  const [revealed, setRevealed] = useState(false);
-  const [logs, setLogs] = useState<LogEntry[]>(starterLogs);
+  const [characters, setCharacters] = useState(INITIAL_STATE.characters);
+  const [selectedId, setSelectedId] = useState(INITIAL_STATE.selectedId);
+  const [round, setRound] = useState(INITIAL_STATE.round);
+  const [revealed, setRevealed] = useState(INITIAL_STATE.revealed);
+  const [logs, setLogs] = useState<LogEntry[]>(INITIAL_STATE.logs);
   const [history, setHistory] = useState<GameState[]>([]);
-  const [view, setView] = useState<"battle" | "sheet" | "director">("battle");
+  const [view, setView] = useState<"prep" | "battle" | "sheet" | "director">("prep");
   const [targetSkill, setTargetSkill] = useState("刀术");
   const [modifier, setModifier] = useState(0);
   const [lastRoll, setLastRoll] = useState<{ dice: number[]; kept: number[]; total: number; result: string } | null>(null);
   const [selectedNinpoId, setSelectedNinpoId] = useState("close");
-  const [targetId, setTargetId] = useState(initialCharacters[1].id);
-  const [phase, setPhase] = useState<Phase>("主要");
+  const [targetId, setTargetId] = useState(INITIAL_STATE.characters[1].id);
+  const [phase, setPhase] = useState<Phase>(INITIAL_STATE.phase);
   const [turnIndex, setTurnIndex] = useState(0);
   const [customNinpo, setCustomNinpo] = useState<Ninpo[]>([]);
   const [diceCount, setDiceCount] = useState(2);
@@ -123,20 +73,23 @@ export default function ShinobigamiConsole() {
   const [customKind, setCustomKind] = useState<Ninpo["kind"]>("攻击");
   const [cycle, setCycle] = useState(1);
   const [sceneNumber, setSceneNumber] = useState(1);
-  const [sceneOwnerId, setSceneOwnerId] = useState(initialCharacters[0].id);
-  const [sceneParticipantIds, setSceneParticipantIds] = useState<string[]>([initialCharacters[0].id]);
+  const [sceneOwnerId, setSceneOwnerId] = useState(INITIAL_STATE.sceneOwnerId);
+  const [sceneParticipantIds, setSceneParticipantIds] = useState<string[]>(INITIAL_STATE.sceneParticipantIds);
   const [sceneAction, setSceneAction] = useState<SceneAction>("未定");
   const [sceneNote, setSceneNote] = useState("");
   const [emotions, setEmotions] = useState<Emotion[]>([]);
   const [intel, setIntel] = useState<IntelRecord[]>([]);
   const [cues, setCues] = useState<SceneCue[]>([]);
-  const [trackers, setTrackers] = useState<Tracker[]>([{ id: "tracker-clue", name: "线索进度", value: 0, max: 6 }]);
-  const [emotionFromId, setEmotionFromId] = useState(initialCharacters[0].id);
-  const [emotionToId, setEmotionToId] = useState(initialCharacters[1].id);
+  const [trackers, setTrackers] = useState(INITIAL_STATE.trackers);
+  const [brief, setBrief] = useState<SessionBrief>(INITIAL_STATE.brief);
+  const [handouts, setHandouts] = useState<Handout[]>(INITIAL_STATE.handouts);
+  const [resolution, setResolution] = useState<Resolution | null>(INITIAL_STATE.resolution);
+  const [emotionFromId, setEmotionFromId] = useState(INITIAL_STATE.characters[0].id);
+  const [emotionToId, setEmotionToId] = useState(INITIAL_STATE.characters[1].id);
   const [emotionIndex, setEmotionIndex] = useState(0);
   const [emotionPositive, setEmotionPositive] = useState(true);
-  const [intelReceiverId, setIntelReceiverId] = useState(initialCharacters[0].id);
-  const [intelSubjectId, setIntelSubjectId] = useState(initialCharacters[1].id);
+  const [intelReceiverId, setIntelReceiverId] = useState(INITIAL_STATE.characters[0].id);
+  const [intelSubjectId, setIntelSubjectId] = useState(INITIAL_STATE.characters[1].id);
   const [intelKind, setIntelKind] = useState<IntelKind>("秘密");
   const [cueTitle, setCueTitle] = useState("");
   const [cueCycle, setCueCycle] = useState(1);
@@ -148,8 +101,8 @@ export default function ShinobigamiConsole() {
   const importRef = useRef<HTMLInputElement>(null);
 
   const selected = characters.find((character) => character.id === selectedId) ?? characters[0];
-  const target = characters.find((character) => character.id === targetId && character.id !== selected?.id)
-    ?? characters.find((character) => character.id !== selected?.id);
+  const target = characters.find((character) => character.id === targetId && character.id !== selected?.id && character.active)
+    ?? characters.find((character) => character.id !== selected?.id && character.active);
   const allNinpo = useMemo(() => [...COMMON_NINPO, ...customNinpo], [customNinpo]);
   const requestedNinpo = allNinpo.find((ninpo) => ninpo.id === selectedNinpoId);
   const firstActiveNinpo = allNinpo.find((ninpo) => selected?.ninpoIds.includes(ninpo.id) && ninpo.kind !== "装备");
@@ -182,9 +135,25 @@ export default function ShinobigamiConsole() {
     () => cues.filter((cue) => !cue.done && (cue.cycle < cycle || (cue.cycle === cycle && cue.scene <= sceneNumber))),
     [cues, cycle, sceneNumber],
   );
+  const preflightIssues = useMemo(
+    () => evaluateSessionReadiness(characters, handouts, brief.playerCount, brief.requirements),
+    [brief, characters, handouts],
+  );
+  const prepBlockers = preflightIssues.filter((issue) => issue.level === "blocker");
+  const prepWarnings = preflightIssues.filter((issue) => issue.level === "warning");
+  const resolutionActor = resolution ? characters.find((character) => character.id === resolution.actorId) : null;
+  const resolutionTarget = resolution ? characters.find((character) => character.id === resolution.targetId) : null;
+  const samePlotBatch = resolutionActor?.plot == null
+    ? []
+    : characters.filter((character) => character.active && character.plot === resolutionActor.plot);
   const smartHints = useMemo(() => {
     const hints: Array<{ tone: "good" | "warn" | "danger"; title: string; detail: string }> = [];
     const pcs = characters.filter((character) => character.role === "PC");
+    if (phase === "导入") {
+      hints.push(prepBlockers.length
+        ? { tone: "danger", title: `${prepBlockers.length} 项开团阻塞`, detail: prepBlockers.slice(0, 3).map((issue) => issue.message).join("；") }
+        : { tone: "good", title: "开团门禁已通过", detail: prepWarnings.length ? `仍有 ${prepWarnings.length} 项可由 GM 确认的提醒。` : "公告、PC 位与角色卡均已确认。" });
+    }
     if (phase === "主要") {
       const waiting = pcs.filter((character) => !character.acted);
       hints.push(waiting.length
@@ -199,55 +168,48 @@ export default function ShinobigamiConsole() {
       const ties = battleOrder.filter((item, index) => index > 0 && item.plot === battleOrder[index - 1].plot);
       if (revealed && ties.length) hints.push({ tone: "warn", title: "存在同布局角色", detail: "请按桌上约定或随机方式决定同布局内的处理顺序。" });
     }
+    if (resolution && resolution.stage !== "完成") {
+      hints.push({ tone: "danger", title: `结算停在「${resolution.stage}」`, detail: `${resolutionActor?.name ?? "行动者"} 的【${resolution.ninpoName}】尚未完成，不应直接跳到下一位。` });
+    }
     if (!availableSkills.length) hints.push({ tone: "danger", title: `${selected?.name ?? "角色"} 没有可用特技`, detail: "失去生命力的分野不能用于代用；只有大成功才可能成功。" });
     if (selected && selected.plot != null && selected.spentCost >= selected.plot) hints.push({ tone: "warn", title: "本回合花费已用尽", detail: `${selected.name} 已使用 ${selected.spentCost}/${selected.plot}。` });
-    if (dueCues.length) hints.push({ tone: "danger", title: `${dueCues.length} 个主持事件已到点`, detail: dueCues.map((cue) => cue.title).join("、") });
+    if (dueCues.length) hints.push({ tone: "danger", title: `${dueCues.length} 个主持事件已到点`, detail: tableSafe ? "请切回 GM 视图查看事件内容。" : dueCues.map((cue) => cue.title).join("、") });
     if (!selected?.mission.trim()) hints.push({ tone: "warn", title: "使命尚未填写", detail: "角色卡导入或场景推进前补齐，便于结局检查。" });
     if (!hints.length) hints.push({ tone: "good", title: "当前状态无明显冲突", detail: "可以继续推进场景或判定。" });
     return hints;
-  }, [availableSkills.length, battleOrder, characters, dueCues, phase, revealed, sceneAction, sceneOwnerId, sceneParticipantIds, selected]);
+  }, [availableSkills.length, battleOrder, characters, dueCues, phase, prepBlockers, prepWarnings.length, resolution, resolutionActor?.name, revealed, sceneAction, sceneOwnerId, sceneParticipantIds, selected, tableSafe]);
 
   useEffect(() => {
     let restored: GameState | null = null;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as GameState;
-        if (parsed.characters?.length) restored = parsed;
-      }
+      if (saved) restored = normalizeGameState(JSON.parse(saved));
     } catch {
       // Ignore invalid device-local data and start from the safe sample.
     }
     queueMicrotask(() => {
       if (restored) {
-        const migrated = restored.characters.map((character) => ({
-          ...character,
-          spentCost: character.spentCost ?? 0,
-          usedNinpoIds: character.usedNinpoIds ?? [],
-          mission: character.mission ?? "",
-          secret: character.secret ?? "",
-          ougi: character.ougi ?? "",
-          closedGaps: character.closedGaps ?? [false, false, false, false, false],
-          acted: character.acted ?? false,
-        }));
-        setCharacters(migrated);
-        setSelectedId(restored.selectedId ?? restored.characters[0].id);
-        setRound(restored.round ?? 1);
-        setRevealed(Boolean(restored.revealed));
-        setLogs(restored.logs?.length ? restored.logs : starterLogs);
-        setPhase(restored.phase ?? "主要");
-        setTurnIndex(restored.turnIndex ?? 0);
-        setCustomNinpo(restored.customNinpo ?? []);
-        setCycle(restored.cycle ?? 1);
-        setSceneNumber(restored.sceneNumber ?? 1);
-        setSceneOwnerId(restored.sceneOwnerId ?? restored.characters[0].id);
-        setSceneParticipantIds(restored.sceneParticipantIds ?? [restored.characters[0].id]);
-        setSceneAction(restored.sceneAction ?? "未定");
-        setSceneNote(restored.sceneNote ?? "");
-        setEmotions(restored.emotions ?? []);
-        setIntel(restored.intel ?? []);
-        setCues(restored.cues ?? []);
-        setTrackers(restored.trackers ?? [{ id: "tracker-clue", name: "线索进度", value: 0, max: 6 }]);
+        setCharacters(restored.characters);
+        setSelectedId(restored.selectedId);
+        setRound(restored.round);
+        setRevealed(restored.revealed);
+        setLogs(restored.logs.length ? restored.logs : starterLogs);
+        setPhase(restored.phase);
+        setTurnIndex(restored.turnIndex);
+        setCustomNinpo(restored.customNinpo);
+        setCycle(restored.cycle);
+        setSceneNumber(restored.sceneNumber);
+        setSceneOwnerId(restored.sceneOwnerId);
+        setSceneParticipantIds(restored.sceneParticipantIds);
+        setSceneAction(restored.sceneAction);
+        setSceneNote(restored.sceneNote);
+        setEmotions(restored.emotions);
+        setIntel(restored.intel);
+        setCues(restored.cues);
+        setTrackers(restored.trackers);
+        setBrief(restored.brief);
+        setHandouts(restored.handouts);
+        setResolution(restored.resolution);
       }
       setHydrated(true);
     });
@@ -256,18 +218,22 @@ export default function ShinobigamiConsole() {
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      schemaVersion: 4,
       characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
       cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
+      brief, handouts, resolution,
     }));
-  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, hydrated]);
+  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, hydrated]);
 
   const currentState = (): GameState => ({
+    schemaVersion: 4,
     characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
     cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
+    brief, handouts, resolution,
   });
   const checkpoint = () => setHistory((items) => [...items.slice(-19), cloneState(currentState())]);
   const addLog = (text: string, tone: LogEntry["tone"] = "action", logCycle = cycle) => {
-    setLogs((items) => [...items, { id: uid("log"), round, cycle: logCycle, tone, text }]);
+    setLogs((items) => [...items.slice(-499), { id: uid("log"), round, cycle: logCycle, tone, text }]);
   };
   const updateCharacter = (id: string, patch: Partial<Character>) => {
     setCharacters((items) => items.map((character) => character.id === id ? { ...character, ...patch } : character));
@@ -294,6 +260,9 @@ export default function ShinobigamiConsole() {
     setIntel(previous.intel);
     setCues(previous.cues);
     setTrackers(previous.trackers);
+    setBrief(previous.brief);
+    setHandouts(previous.handouts);
+    setResolution(previous.resolution);
     setHistory((items) => items.slice(0, -1));
   };
 
@@ -306,7 +275,7 @@ export default function ShinobigamiConsole() {
       role, faction: "未选择流派", rank: "中忍", plot: null, active: true, extraLife: 0, life: makeLife(),
       skills: ["刀术"], ninpoIds: ["close", "shoot"], conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "", secret: "", ougi: "", closedGaps: [false, false, false, false, false], acted: false,
-      tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 1 },
+      tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 0 },
     };
     setCharacters((items) => [...items, character]);
     setSelectedId(id);
@@ -321,6 +290,8 @@ export default function ShinobigamiConsole() {
     setSelectedId(remaining[0].id);
     setEmotions((items) => items.filter((emotion) => emotion.fromId !== selected.id && emotion.toId !== selected.id));
     setIntel((items) => items.filter((record) => record.subjectId !== selected.id).map((record) => ({ ...record, knownBy: record.knownBy.filter((id) => id !== selected.id) })));
+    setHandouts((items) => items.map((handout) => handout.assignedCharacterId === selected.id ? { ...handout, assignedCharacterId: "", reviewed: false } : handout));
+    if (resolution?.actorId === selected.id || resolution?.targetId === selected.id) setResolution(null);
     setSceneParticipantIds((items) => items.filter((id) => id !== selected.id));
     if (sceneOwnerId === selected.id) setSceneOwnerId(remaining[0].id);
     if (emotionFromId === selected.id) setEmotionFromId(remaining[0].id);
@@ -343,6 +314,50 @@ export default function ShinobigamiConsole() {
     const closedGaps = [...(selected.closedGaps ?? [false, false, false, false, false])];
     closedGaps[index] = !closedGaps[index];
     updateCharacter(selected.id, { closedGaps });
+  };
+
+  const updateBrief = (patch: Partial<SessionBrief>) => {
+    setBrief((current) => ({ ...current, ...patch }));
+  };
+
+  const updateRequirements = (patch: Partial<SessionBrief["requirements"]>) => {
+    setBrief((current) => ({ ...current, requirements: { ...current.requirements, ...patch } }));
+  };
+
+  const resizeHandouts = () => {
+    checkpoint();
+    const generated = makeDefaultHandouts(characters, brief.playerCount);
+    setHandouts(generated.map((fresh, index) => ({ ...fresh, ...(handouts[index] ?? {}), id: handouts[index]?.id ?? fresh.id, slot: fresh.slot })));
+    addLog(`已按公告人数整理为 ${brief.playerCount} 份 PC 位。`, "system");
+  };
+
+  const updateHandout = (id: string, patch: Partial<Handout>) => {
+    setHandouts((items) => items.map((handout) => handout.id === id ? { ...handout, ...patch } : handout));
+  };
+
+  const applyHandoutToCharacter = (handout: Handout) => {
+    const character = characters.find((item) => item.id === handout.assignedCharacterId);
+    if (!character) {
+      addLog(`${handout.slot} 尚未分配角色，无法同步。`, "danger");
+      return;
+    }
+    checkpoint();
+    updateCharacter(character.id, {
+      mission: handout.publicMission.trim() || character.mission,
+      secret: handout.privateSecret.trim() || character.secret,
+    });
+    addLog(`已将 ${handout.slot} 的使命与秘密同步给 ${character.name}。`, "system");
+  };
+
+  const startSession = () => {
+    if (prepBlockers.length) {
+      addLog(`开团门禁未通过：仍有 ${prepBlockers.length} 项必须确认。`, "danger");
+      return;
+    }
+    checkpoint();
+    setPhase("主要");
+    setView("director");
+    addLog(`《${brief.title}》开团检查完成，进入主要阶段。`, "system");
   };
 
   const toggleSceneParticipant = (id: string) => {
@@ -485,7 +500,12 @@ export default function ShinobigamiConsole() {
 
   const advanceTurn = () => {
     if (!revealed || !battleOrder.length) return;
+    if (resolution && resolution.stage !== "完成") {
+      addLog(`不能切换行动者：当前结算仍停在「${resolution.stage}」。`, "danger");
+      return;
+    }
     checkpoint();
+    setResolution(null);
     const nextIndex = (turnIndex + 1) % battleOrder.length;
     setTurnIndex(nextIndex);
     setSelectedId(battleOrder[nextIndex].id);
@@ -493,7 +513,12 @@ export default function ShinobigamiConsole() {
   };
 
   const newRound = () => {
+    if (resolution && resolution.stage !== "完成") {
+      addLog(`不能开始新回合：当前结算仍停在「${resolution.stage}」。`, "danger");
+      return;
+    }
     checkpoint();
+    setResolution(null);
     setRound((value) => value + 1);
     setRevealed(false);
     setLastRoll(null);
@@ -521,6 +546,7 @@ export default function ShinobigamiConsole() {
     if (raw >= 12) result = "大成功";
     if (raw <= fumbleLine) result = revealed ? "大失败／逆止" : "大失败";
     setLastRoll({ dice, kept, total, result });
+    if (resolution) setResolution(advanceResolutionAfterRoll(resolution, selected.id, result));
     const command = `${diceCount > 2 ? diceCount : ""}SG@12#${fumbleLine}>=${check.target}`;
     const poolText = diceCount > 2 ? `${dice.join(",")} → 取高 ${kept.join("+")}` : kept.join("+");
     addLog(`[${command}] ${selected.name} 以${check.skill}代用${targetSkill}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}。`, result.includes("失败") ? "danger" : "roll");
@@ -531,7 +557,10 @@ export default function ShinobigamiConsole() {
 
   const declareNinpo = () => {
     if (!selected || !target) return;
-    checkpoint();
+    if (resolution && resolution.stage !== "完成") {
+      addLog(`请先完成【${resolution.ninpoName}】的当前结算。`, "danger");
+      return;
+    }
     const distance = selected.plot == null || target.plot == null ? null : Math.abs(selected.plot - target.plot);
     const problems: string[] = [];
     if (distance != null && distance > selectedNinpo.range) problems.push(`距离 ${distance} 超过忍法距离 ${selectedNinpo.range}`);
@@ -542,12 +571,58 @@ export default function ShinobigamiConsole() {
       addLog(`${selected.name} 无法对 ${target.name} 使用【${selectedNinpo.name}】：${problems.join("；")}。`, "danger");
       return;
     }
+    checkpoint();
     if (selectedNinpo.skill !== "自由") setTargetSkill(selectedNinpo.skill);
     updateCharacter(selected.id, {
       spentCost: nextCost,
       usedNinpoIds: selectedNinpo.kind === "支援" ? [...(selected.usedNinpoIds ?? []), selectedNinpo.id] : selected.usedNinpoIds,
     });
+    setResolution({
+      id: uid("resolution"),
+      actorId: selected.id,
+      targetId: target.id,
+      ninpoId: selectedNinpo.id,
+      ninpoName: selectedNinpo.name,
+      ninpoKind: selectedNinpo.kind,
+      skill: selectedNinpo.skill,
+      stage: "命中判定",
+    });
     addLog(`${selected.name} 对 ${target.name} 宣言【${selectedNinpo.name}】${distance == null ? "" : `（距离 ${distance}）`}。${selectedNinpo.damage ? `命中：${selectedNinpo.damage}。` : ""}`, "action");
+  };
+
+  const beginDefense = () => {
+    if (!resolution || resolution.stage !== "反应窗口" || resolution.ninpoKind !== "攻击" || !resolutionTarget) return;
+    checkpoint();
+    setResolution({ ...resolution, stage: "回避判定" });
+    setSelectedId(resolutionTarget.id);
+    if (resolution.skill !== "自由") setTargetSkill(resolution.skill);
+    setModifier(0);
+    setLastRoll(null);
+    addLog(`宣言窗口关闭，轮到 ${resolutionTarget.name} 进行回避判定。`, "system");
+  };
+
+  const skipDefense = () => {
+    if (!resolution || resolution.stage !== "反应窗口") return;
+    checkpoint();
+    setResolution({ ...resolution, stage: "效果结算" });
+    addLog(`同一时机的宣言窗口关闭，进入【${resolution.ninpoName}】效果结算。`, "system");
+  };
+
+  const confirmResolutionEffects = () => {
+    if (!resolution || resolution.stage !== "效果结算") return;
+    checkpoint();
+    setResolution({ ...resolution, stage: "完成" });
+    addLog(`【${resolution.ninpoName}】的伤害、变调与附带效果已确认。`, "action");
+  };
+
+  const dismissResolution = () => {
+    if (!resolution) return;
+    checkpoint();
+    addLog(
+      resolution.stage === "完成" ? `【${resolution.ninpoName}】结算已归档。` : `GM 跳过了【${resolution.ninpoName}】剩余结算。`,
+      resolution.stage === "完成" ? "system" : "danger",
+    );
+    setResolution(null);
   };
 
   const toggleCondition = (condition: string) => {
@@ -556,6 +631,14 @@ export default function ShinobigamiConsole() {
     const conditions = selected.conditions.includes(condition) ? selected.conditions.filter((item) => item !== condition) : [...selected.conditions, condition];
     updateCharacter(selected.id, { conditions });
     addLog(`${selected.name} ${conditions.includes(condition) ? "获得" : "解除"}变调／状态：${condition}。`, conditions.includes(condition) ? "danger" : "action");
+  };
+
+  const toggleActive = () => {
+    if (!selected) return;
+    checkpoint();
+    const active = !selected.active;
+    updateCharacter(selected.id, { active, plot: active ? selected.plot : null });
+    addLog(`${selected.name} 已标记为${active ? "重新参战" : "脱落／退场"}。`, active ? "action" : "danger");
   };
 
   const updateTool = (tool: keyof Character["tools"], delta: number) => {
@@ -573,6 +656,10 @@ export default function ShinobigamiConsole() {
 
   const toggleNinpo = (ninpoId: string) => {
     if (!selected) return;
+    if (ninpoId === "close" && selected.ninpoIds.includes("close")) {
+      addLog("接近战攻击是基础忍法，不占槽位且不能移除。", "danger");
+      return;
+    }
     if (selected.ninpoIds.includes(ninpoId) && selected.ninpoIds.length === 1) {
       addLog("角色至少需要保留一个可用忍法。", "danger");
       return;
@@ -629,37 +716,30 @@ export default function ShinobigamiConsole() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result)) as GameState;
-        if (!parsed.characters?.length) throw new Error("invalid");
+        const parsed = normalizeGameState(JSON.parse(String(reader.result)));
+        if (!parsed) throw new Error("invalid");
         checkpoint();
-        setCharacters(parsed.characters.map((character) => ({
-          ...character,
-          spentCost: character.spentCost ?? 0,
-          usedNinpoIds: character.usedNinpoIds ?? [],
-          mission: character.mission ?? "",
-          secret: character.secret ?? "",
-          ougi: character.ougi ?? "",
-          closedGaps: character.closedGaps ?? [false, false, false, false, false],
-          acted: character.acted ?? false,
-        })));
-        setSelectedId(parsed.selectedId ?? parsed.characters[0].id);
-        setRound(parsed.round ?? 1);
-        setRevealed(Boolean(parsed.revealed));
-        setLogs(parsed.logs ?? starterLogs);
-        setPhase(parsed.phase ?? "主要");
-        setTurnIndex(parsed.turnIndex ?? 0);
-        setCustomNinpo(parsed.customNinpo ?? []);
-        setCycle(parsed.cycle ?? 1);
-        setSceneNumber(parsed.sceneNumber ?? 1);
-        setSceneOwnerId(parsed.sceneOwnerId ?? parsed.characters[0].id);
-        setSceneParticipantIds(parsed.sceneParticipantIds ?? [parsed.characters[0].id]);
-        setSceneAction(parsed.sceneAction ?? "未定");
-        setSceneNote(parsed.sceneNote ?? "");
-        setEmotions(parsed.emotions ?? []);
-        setIntel(parsed.intel ?? []);
-        setCues(parsed.cues ?? []);
-        setTrackers(parsed.trackers ?? [{ id: "tracker-clue", name: "线索进度", value: 0, max: 6 }]);
-        addLog(`已导入存档：${file.name}`, "system");
+        setCharacters(parsed.characters);
+        setSelectedId(parsed.selectedId);
+        setRound(parsed.round);
+        setRevealed(parsed.revealed);
+        setLogs([...parsed.logs.slice(-499), { id: uid("log"), round: parsed.round, cycle: parsed.cycle, tone: "system", text: `已导入存档：${file.name}` }]);
+        setPhase(parsed.phase);
+        setTurnIndex(parsed.turnIndex);
+        setCustomNinpo(parsed.customNinpo);
+        setCycle(parsed.cycle);
+        setSceneNumber(parsed.sceneNumber);
+        setSceneOwnerId(parsed.sceneOwnerId);
+        setSceneParticipantIds(parsed.sceneParticipantIds);
+        setSceneAction(parsed.sceneAction);
+        setSceneNote(parsed.sceneNote);
+        setEmotions(parsed.emotions);
+        setIntel(parsed.intel);
+        setCues(parsed.cues);
+        setTrackers(parsed.trackers);
+        setBrief(parsed.brief);
+        setHandouts(parsed.handouts);
+        setResolution(parsed.resolution);
       } catch {
         addLog("存档无法读取，请确认文件来自本控制台。", "danger");
       }
@@ -670,24 +750,30 @@ export default function ShinobigamiConsole() {
 
   const clearSession = () => {
     checkpoint();
-    setCharacters(initialCharacters);
-    setSelectedId(initialCharacters[0].id);
-    setRound(1);
-    setRevealed(false);
-    setPhase("主要");
-    setTurnIndex(0);
-    setCustomNinpo([]);
-    setCycle(1);
-    setSceneNumber(1);
-    setSceneOwnerId(initialCharacters[0].id);
-    setSceneParticipantIds([initialCharacters[0].id]);
-    setSceneAction("未定");
-    setSceneNote("");
-    setEmotions([]);
-    setIntel([]);
-    setCues([]);
-    setTrackers([{ id: "tracker-clue", name: "线索进度", value: 0, max: 6 }]);
-    setLogs(starterLogs);
+    const fresh = createInitialGameState();
+    setCharacters(fresh.characters);
+    setSelectedId(fresh.selectedId);
+    setTargetId(fresh.characters.find((character) => character.id !== fresh.selectedId)?.id ?? fresh.selectedId);
+    setRound(fresh.round);
+    setRevealed(fresh.revealed);
+    setPhase(fresh.phase);
+    setTurnIndex(fresh.turnIndex);
+    setCustomNinpo(fresh.customNinpo);
+    setCycle(fresh.cycle);
+    setSceneNumber(fresh.sceneNumber);
+    setSceneOwnerId(fresh.sceneOwnerId);
+    setSceneParticipantIds(fresh.sceneParticipantIds);
+    setSceneAction(fresh.sceneAction);
+    setSceneNote(fresh.sceneNote);
+    setEmotions(fresh.emotions);
+    setIntel(fresh.intel);
+    setCues(fresh.cues);
+    setTrackers(fresh.trackers);
+    setBrief(fresh.brief);
+    setHandouts(fresh.handouts);
+    setResolution(fresh.resolution);
+    setLogs(fresh.logs);
+    setView("prep");
     setLastRoll(null);
   };
 
@@ -699,7 +785,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 0.3</span>
+          <span className="version">MVP 0.4</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -710,6 +796,7 @@ export default function ShinobigamiConsole() {
       </header>
 
       <nav className="mode-tabs" aria-label="主要视图">
+        <button className={view === "prep" ? "active" : ""} onClick={() => setView("prep")}>开团准备</button>
         <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>战斗控制台</button>
         <button className={view === "director" ? "active" : ""} onClick={() => setView("director")}>场景导演</button>
         <button className={view === "sheet" ? "active" : ""} onClick={() => setView("sheet")}>角色与特技</button>
@@ -730,10 +817,10 @@ export default function ShinobigamiConsole() {
             {characters.map((character) => {
               const remaining = FIELD_NAMES.filter((field) => character.life[field]).length + character.extraLife;
               return (
-                <button key={character.id} className={`character-card ${selected.id === character.id ? "selected" : ""} ${currentActor?.id === character.id && revealed ? "current-turn" : ""}`} onClick={() => setSelectedId(character.id)}>
+                <button key={character.id} className={`character-card ${selected.id === character.id ? "selected" : ""} ${currentActor?.id === character.id && revealed ? "current-turn" : ""} ${character.active ? "" : "inactive"}`} onClick={() => setSelectedId(character.id)}>
                   <span className={`role-chip ${character.role.toLowerCase()}`}>{character.role}</span>
                   <span className="character-name">{character.name}</span>
-                  <span className="character-meta">{character.faction} · {character.rank}{phase === "主要" ? ` · ${character.acted ? "已行动" : "未行动"}` : ""}</span>
+                  <span className="character-meta">{character.faction} · {character.rank}{!character.active ? " · 已脱落" : phase === "主要" ? ` · ${character.acted ? "已行动" : "未行动"}` : ""}</span>
                   <span className="life-dots" aria-label={`剩余生命力 ${remaining}`}>{FIELD_NAMES.map((field) => <i key={field} className={character.life[field] ? "alive" : "lost"} />)}</span>
                   <span className={`plot-token ${revealed ? "revealed" : ""}`}>{character.plot == null ? "–" : revealed ? character.plot : "?"}</span>
                 </button>
@@ -745,7 +832,72 @@ export default function ShinobigamiConsole() {
         </aside>
 
         <section className="main-stage">
-          {view === "battle" ? (
+          {view === "prep" ? (
+            <>
+              <section className="panel prep-brief-panel">
+                <div className="panel-heading battle-heading">
+                  <div><span>SESSION PRE-FLIGHT</span><h2>开团公告与约束</h2></div>
+                  <span className="selection-count">{prepBlockers.length ? `${prepBlockers.length} 项阻塞` : "可以开团"}</span>
+                </div>
+                <div className="source-audit">
+                  <strong>本地资料体检</strong>
+                  <p>检测到 6 个字幕文件内容完全相同，实际只有一段约 7 分 45 秒的开团与车卡教学；本工具不会把重复文件误判成六个完整章节，也不会上传字幕或规则书原文。</p>
+                </div>
+                <div className="brief-grid">
+                  <label className="brief-title">忍务名称<input value={brief.title} onChange={(event) => updateBrief({ title: event.target.value })} /></label>
+                  <label>规制<input value={brief.regulation} onChange={(event) => updateBrief({ regulation: event.target.value })} /></label>
+                  <label>剧本类型<input value={brief.scenarioType} onChange={(event) => updateBrief({ scenarioType: event.target.value })} /></label>
+                  <label>玩家人数<input type="number" min="1" max="12" value={brief.playerCount} onChange={(event) => updateBrief({ playerCount: Math.max(1, Number(event.target.value) || 1) })} /></label>
+                  <label>巡数<input type="number" min="1" max="20" value={brief.cycles} onChange={(event) => updateBrief({ cycles: Math.max(1, Number(event.target.value) || 1) })} /></label>
+                  <label>阶级<input value={brief.rank} onChange={(event) => updateBrief({ rank: event.target.value })} /></label>
+                  <label>角色卡<select value={brief.characterMode} onChange={(event) => updateBrief({ characterMode: event.target.value as SessionBrief["characterMode"] })}><option>新卡</option><option>续卡</option><option>混合</option></select></label>
+                  <label>GM 难度<input value={brief.gmDifficulty} onChange={(event) => updateBrief({ gmDifficulty: event.target.value })} /></label>
+                  <label>交卡期限<input type="datetime-local" value={brief.submissionDeadline} onChange={(event) => updateBrief({ submissionDeadline: event.target.value })} /></label>
+                  <label className="brief-rules">允许规则与扩展<textarea value={brief.allowedRules} onChange={(event) => updateBrief({ allowedRules: event.target.value })} placeholder="记录本团可用的扩展、下位流派或特殊规则；不要粘贴规则书原文。" /></label>
+                </div>
+                <div className="quota-strip">
+                  <span>角色卡检查值</span>
+                  <label>特技<input type="number" min="0" max="30" value={brief.requirements.requiredSkills} onChange={(event) => updateRequirements({ requiredSkills: Number(event.target.value) })} /></label>
+                  <label>忍法槽<input type="number" min="0" max="30" value={brief.requirements.requiredNinpoSlots} onChange={(event) => updateRequirements({ requiredNinpoSlots: Number(event.target.value) })} /></label>
+                  <label>忍具<input type="number" min="0" max="30" value={brief.requirements.requiredTools} onChange={(event) => updateRequirements({ requiredTools: Number(event.target.value) })} /></label>
+                  <button onClick={resizeHandouts}>按人数整理 PC 位</button>
+                  <em>接近战攻击为基础忍法，不计入忍法槽；扩展规则可直接调整检查值。</em>
+                </div>
+              </section>
+
+              <section className="panel handout-panel">
+                <div className="panel-heading battle-heading"><div><span>PRIVATE HANDOUTS</span><h2>PC 分配与秘密交付</h2></div><span className="selection-count">{handouts.length} 份</span></div>
+                <div className="handout-list">
+                  {handouts.map((handout) => {
+                    const assigned = characters.find((character) => character.id === handout.assignedCharacterId);
+                    return <article key={handout.id} className="handout-card">
+                      <div className="handout-head"><strong>{handout.slot}</strong><span>{assigned?.name ?? "未分配"}</span></div>
+                      <div className="handout-fields">
+                        <label>分配角色<select value={handout.assignedCharacterId} onChange={(event) => updateHandout(handout.id, { assignedCharacterId: event.target.value, delivered: false, reviewed: false, questionsResolved: false })}><option value="">尚未分配</option>{characters.filter((character) => character.role === "PC").map((character) => <option key={character.id} value={character.id}>{character.name} · {character.faction}</option>)}</select></label>
+                        <label>推荐流派<input value={handout.recommendedFaction} onChange={(event) => updateHandout(handout.id, { recommendedFaction: event.target.value, reviewed: false })} placeholder="不限或指定流派" /></label>
+                        <label>公开使命<textarea value={handout.publicMission} onChange={(event) => updateHandout(handout.id, { publicMission: event.target.value, reviewed: false })} /></label>
+                        <label className={tableSafe ? "masked-field" : ""}>私人秘密<textarea value={tableSafe ? "桌面安全模式：秘密已隐藏" : handout.privateSecret} disabled={tableSafe} onChange={(event) => updateHandout(handout.id, { privateSecret: event.target.value, delivered: false, questionsResolved: false })} /></label>
+                      </div>
+                      <div className="handout-actions">
+                        <button className={handout.delivered ? "done" : ""} onClick={() => { checkpoint(); updateHandout(handout.id, { delivered: !handout.delivered }); }}>{handout.delivered ? "✓ 秘密已送达" : "确认秘密送达"}</button>
+                        <button className={handout.questionsResolved ? "done" : ""} onClick={() => { checkpoint(); updateHandout(handout.id, { questionsResolved: !handout.questionsResolved }); }}>{handout.questionsResolved ? "✓ 问题已答复" : "确认私聊答复"}</button>
+                        <button className={handout.reviewed ? "done" : ""} onClick={() => { checkpoint(); updateHandout(handout.id, { reviewed: !handout.reviewed }); }}>{handout.reviewed ? "✓ GM 已复核" : "确认角色卡复核"}</button>
+                        <button onClick={() => applyHandoutToCharacter(handout)}>同步到角色卡</button>
+                      </div>
+                    </article>;
+                  })}
+                </div>
+              </section>
+
+              <section className="panel readiness-panel">
+                <div className="readiness-score"><span>READY CHECK</span><strong>{prepBlockers.length ? "未通过" : "通过"}</strong><p>{prepBlockers.length} 项阻塞 · {prepWarnings.length} 项提醒</p></div>
+                <div className="readiness-issues">
+                  {preflightIssues.length ? preflightIssues.map((issue, index) => <article className={issue.level} key={`${issue.code}-${issue.characterId ?? issue.handoutId ?? index}`}><span>{issue.level === "blocker" ? "!" : "·"}</span><p>{issue.message}</p></article>) : <article className="ready"><span>✓</span><p>公告、秘密交付、私聊确认与角色卡复核均已完成。</p></article>}
+                </div>
+                <div className="readiness-launch"><p>数量提醒允许 GM 按扩展规则确认后继续；秘密、分配与复核缺失会阻止误开团。</p><button onClick={startSession} disabled={Boolean(prepBlockers.length)}>完成检查，进入主要阶段 →</button></div>
+              </section>
+            </>
+          ) : view === "battle" ? (
             <>
               <section className="panel plot-panel">
                 <div className="panel-heading battle-heading">
@@ -772,7 +924,7 @@ export default function ShinobigamiConsole() {
                   <div className="actor-banner"><span>行动者</span><strong>{selected.name}</strong><small>布局 {selected.plot ?? "未定"} · 花费 {selected.spentCost ?? 0}/{selected.plot ?? "–"}</small></div>
                   <label className="field-label">使用忍法<select value={activeNinpoId} onChange={(event) => setSelectedNinpoId(event.target.value)}>{learnedNinpo.map((ninpo) => <option value={ninpo.id} key={ninpo.id}>{ninpo.name}</option>)}</select></label>
                   <div className="ninpo-card"><div className="ninpo-stats"><span>{selectedNinpo.kind}</span><span>距离 {selectedNinpo.range}</span><span>花费 {selectedNinpo.cost}</span><span>{selectedNinpo.skill}</span></div><p>{selectedNinpo.summary}</p>{selectedNinpo.damage && <strong>{selectedNinpo.damage}</strong>}</div>
-                  <label className="field-label">目标<select value={target?.id ?? ""} onChange={(event) => setTargetId(event.target.value)}>{characters.filter((character) => character.id !== selected.id).map((character) => <option value={character.id} key={character.id}>{character.name} · 布局 {character.plot ?? "?"}</option>)}</select></label>
+                  <label className="field-label">目标<select value={target?.id ?? ""} onChange={(event) => setTargetId(event.target.value)}>{characters.filter((character) => character.id !== selected.id && character.active).map((character) => <option value={character.id} key={character.id}>{character.name} · 布局 {character.plot ?? "?"}</option>)}</select></label>
                   <button className="declare-button" onClick={declareNinpo} disabled={!target}>宣言忍法</button>
                 </section>
 
@@ -794,6 +946,39 @@ export default function ShinobigamiConsole() {
                   {lastRoll && <div className={`roll-result ${lastRoll.result.includes("失败") ? "failed" : "passed"}`}><span>{lastRoll.dice.join(" · ")}{lastRoll.dice.length > 2 ? ` → ${lastRoll.kept.join("+")}` : ""}</span><strong>{lastRoll.total}</strong><em>{lastRoll.result}</em></div>}
                 </section>
               </div>
+
+              <section className={`panel resolution-panel ${resolution ? "active" : "idle"}`}>
+                <div className="panel-heading battle-heading">
+                  <div><span>ACTION PIPELINE</span><h2>当前结算流程</h2></div>
+                  <span className="selection-count">{resolution?.stage ?? "等待宣言"}</span>
+                </div>
+                {resolution ? <>
+                  <div className="resolution-summary">
+                    <div><span>行动者</span><strong>{resolutionActor?.name ?? "?"}</strong></div>
+                    <b>【{resolution.ninpoName}】</b>
+                    <div><span>目标</span><strong>{resolutionTarget?.name ?? "?"}</strong></div>
+                  </div>
+                  <div className="resolution-steps">
+                    {(["命中判定", "反应窗口", "回避判定", "效果结算", "完成"] as const).map((stage, index, stages) => {
+                      const currentIndex = stages.indexOf(resolution.stage);
+                      return <span key={stage} className={index < currentIndex ? "done" : index === currentIndex ? "current" : ""}><i>{index < currentIndex ? "✓" : index + 1}</i>{stage}</span>;
+                    })}
+                  </div>
+                  <div className="resolution-instruction">
+                    {resolution.stage === "命中判定" && <p>使用右侧行为判定完成命中判定；失败会直接结束，成功后先停在宣言窗口。</p>}
+                    {resolution.stage === "反应窗口" && <p>先询问是否还有同一时机的忍法、奥义或修正宣言；确认无人继续宣言后，再进入回避或直接适用效果。</p>}
+                    {resolution.stage === "回避判定" && <p>当前已切换到 {resolutionTarget?.name ?? "目标"}，使用【{resolution.skill}】完成回避判定；成功则结束，失败进入效果结算。</p>}
+                    {resolution.stage === "效果结算" && <p>{samePlotBatch.length > 1 ? `布局 ${resolutionActor?.plot} 有 ${samePlotBatch.length} 人同速：先记录结果，待同速角色都完成攻击后再统一应用生命、逆止与变调。` : "使用下方生命力与变调按钮应用结果，再确认效果已结算。"}</p>}
+                    {resolution.stage === "完成" && <p>本次忍法已完成。可以归档流程，或直接点击顶部“下一位”归档并推进行动顺序。</p>}
+                  </div>
+                  <div className="resolution-actions">
+                    {resolution.stage === "反应窗口" && <>{resolution.ninpoKind === "攻击" && <button onClick={beginDefense}>宣言完毕，进入回避</button>}<button onClick={skipDefense}>{resolution.ninpoKind === "攻击" ? "目标不回避，进入效果" : "宣言完毕，进入效果"}</button></>}
+                    {resolution.stage === "效果结算" && <button onClick={confirmResolutionEffects}>确认伤害与效果已处理</button>}
+                    {resolution.stage === "完成" && <button onClick={dismissResolution}>归档本次结算</button>}
+                    {resolution.stage !== "完成" && <button className="skip" onClick={dismissResolution}>GM 跳过剩余流程</button>}
+                  </div>
+                </> : <div className="resolution-empty"><strong>宣言忍法后自动启动</strong><p>控制台会依次锁定命中、同一时机宣言、回避、效果与完成状态；未完成前会阻止误点下一位或新回合。</p></div>}
+              </section>
             </>
           ) : view === "director" ? (
             <>
@@ -808,7 +993,7 @@ export default function ShinobigamiConsole() {
                     <label>主要行动<select value={sceneAction} onChange={(event) => setSceneAction(event.target.value as SceneAction)}>{(["未定", "回复判定", "情报判定", "感情判定", "战斗", "计划判定", "辅助判定"] as SceneAction[]).map((action) => <option key={action}>{action}</option>)}</select></label>
                   </div>
                   <div className="participant-picker"><span>登场人物</span>{characters.map((character) => <button key={character.id} className={sceneParticipantIds.includes(character.id) ? "active" : ""} onClick={() => toggleSceneParticipant(character.id)}>{character.name}</button>)}</div>
-                  <label className="scene-note">场景摘要或判定结果<textarea value={sceneNote} onChange={(event) => setSceneNote(event.target.value)} placeholder="只记录推进所需的关键词；秘密内容可留在角色卡中。" /></label>
+                  <label className={`scene-note ${tableSafe ? "masked-field" : ""}`}>场景摘要或判定结果<textarea value={tableSafe ? "桌面安全模式：主持摘要已隐藏" : sceneNote} disabled={tableSafe} onChange={(event) => setSceneNote(event.target.value)} placeholder="只记录推进所需的关键词；秘密内容可留在角色卡中。" /></label>
                   <button className="complete-scene" onClick={completeScene}>完成场景并轮到下一位</button>
                   <div className="acted-strip">{characters.filter((character) => character.role === "PC").map((character) => <span className={character.acted ? "done" : ""} key={character.id}>{character.acted ? "✓" : "○"} {character.name}</span>)}</div>
                 </section>
@@ -818,7 +1003,7 @@ export default function ShinobigamiConsole() {
                   <div className="tracker-list">{trackers.map((tracker) => <article key={tracker.id}><div><strong>{tracker.name}</strong><span>{tracker.value}/{tracker.max}</span></div><div className="tracker-bar"><i style={{ width: `${tracker.max ? (tracker.value / tracker.max) * 100 : 0}%` }} /></div><div className="tracker-buttons"><button onClick={() => updateTracker(tracker.id, -1)}>−</button><button onClick={() => updateTracker(tracker.id, 1)}>＋</button></div></article>)}</div>
                   <div className="inline-form tracker-form"><input value={trackerName} onChange={(event) => setTrackerName(event.target.value)} placeholder="新进度名称" /><input aria-label="进度上限" type="number" min="2" max="20" value={trackerMax} onChange={(event) => setTrackerMax(Number(event.target.value))} /><button onClick={addTracker}>添加</button></div>
                   <div className="cue-heading"><strong>主持事件</strong><span>到点自动提醒，不自动公开内容</span></div>
-                  <div className="cue-list">{cues.length ? cues.slice().sort((a, b) => a.cycle - b.cycle || a.scene - b.scene).map((cue) => <button key={cue.id} className={`${cue.done ? "done" : ""} ${dueCues.some((item) => item.id === cue.id) ? "due" : ""}`} onClick={() => toggleCue(cue.id)}><span>C{cue.cycle}·S{cue.scene}</span><b>{cue.title}</b><em>{cue.done ? "已处理" : "待处理"}</em></button>) : <p className="empty-log">还没有安排主持事件。</p>}</div>
+                  <div className="cue-list">{cues.length ? cues.slice().sort((a, b) => a.cycle - b.cycle || a.scene - b.scene).map((cue) => <button key={cue.id} className={`${cue.done ? "done" : ""} ${dueCues.some((item) => item.id === cue.id) ? "due" : ""}`} onClick={() => toggleCue(cue.id)}><span>C{cue.cycle}·S{cue.scene}</span><b>{tableSafe ? "主持事件已隐藏" : cue.title}</b><em>{cue.done ? "已处理" : "待处理"}</em></button>) : <p className="empty-log">还没有安排主持事件。</p>}</div>
                   <div className="cue-form"><input value={cueTitle} onChange={(event) => setCueTitle(event.target.value)} placeholder="例如：公开档案或检查条件" /><label>巡<input type="number" min="1" value={cueCycle} onChange={(event) => setCueCycle(Number(event.target.value))} /></label><label>场<input type="number" min="1" value={cueScene} onChange={(event) => setCueScene(Number(event.target.value))} /></label><button onClick={addCue}>安排</button></div>
                 </section>
               </div>
@@ -878,7 +1063,7 @@ export default function ShinobigamiConsole() {
           )}
 
           <section className="panel status-panel">
-            <div className="status-block life-block"><span className="mini-label">LIFE / 生命力</span><div className="field-toggles">{FIELD_NAMES.map((field) => <button key={field} className={selected.life[field] ? "healthy" : "lost"} onClick={() => toggleLife(field)}><i />{field}</button>)}</div><div className="extra-life"><span>追加生命力</span><button onClick={() => updateCharacter(selected.id, { extraLife: Math.max(0, selected.extraLife - 1) })}>−</button><strong>{selected.extraLife}</strong><button onClick={() => updateCharacter(selected.id, { extraLife: selected.extraLife + 1 })}>＋</button></div></div>
+            <div className="status-block life-block"><span className="mini-label">LIFE / 生命力</span><div className="field-toggles">{FIELD_NAMES.map((field) => <button key={field} className={selected.life[field] ? "healthy" : "lost"} onClick={() => toggleLife(field)}><i />{field}</button>)}</div><div className="extra-life"><span>追加生命力</span><button onClick={() => updateCharacter(selected.id, { extraLife: Math.max(0, selected.extraLife - 1) })}>−</button><strong>{selected.extraLife}</strong><button onClick={() => updateCharacter(selected.id, { extraLife: selected.extraLife + 1 })}>＋</button><button className={`active-toggle ${selected.active ? "" : "dropped"}`} onClick={toggleActive}>{selected.active ? "参战中" : "已脱落"}</button></div></div>
             <div className="status-block"><span className="mini-label">CONDITION / 变调·状态</span><div className="condition-list">{CONDITIONS.map((condition) => <button key={condition} className={selected.conditions.includes(condition) ? "active" : ""} onClick={() => toggleCondition(condition)}>{condition}</button>)}</div></div>
             <div className="status-block"><span className="mini-label">TOOLS / 忍具</span><div className="tool-list">{(Object.keys(selected.tools) as Array<keyof Character["tools"]>).map((tool) => <div key={tool}><span>{tool}</span><button onClick={() => updateTool(tool, -1)}>−</button><b>{selected.tools[tool]}</b><button onClick={() => updateTool(tool, 1)}>＋</button></div>)}</div></div>
           </section>
@@ -889,10 +1074,10 @@ export default function ShinobigamiConsole() {
           {sideView === "assistant" ? <div className="assistant-view">
             <div className="panel-heading"><div><span>RULE-AWARE ASSISTANT</span><h2>当前状态检查</h2></div><span className="counter">{smartHints.length}</span></div>
             <div className="hint-list">{smartHints.map((hint, index) => <article className={hint.tone} key={`${hint.title}-${index}`}><span>{hint.tone === "good" ? "✓" : hint.tone === "danger" ? "!" : "·"}</span><div><h3>{hint.title}</h3><p>{hint.detail}</p></div></article>)}</div>
-            <div className="assistant-summary"><span>当前位置</span><strong>{phase === "主要" ? `第 ${cycle} 巡 · 第 ${sceneNumber} 场` : `第 ${round} 回合`}</strong><p>提示由当前状态和规则条件生成，不会替 GM 作剧情裁定。</p></div>
+            <div className="assistant-summary"><span>当前位置</span><strong>{phase === "导入" ? "开团检查" : phase === "主要" ? `第 ${cycle} 巡 · 第 ${sceneNumber} 场` : `第 ${round} 回合`}</strong><p>提示由当前状态和规则条件生成，不会替 GM 作剧情裁定。</p></div>
           </div> : sideView === "log" ? <>
             <div className="panel-heading"><div><span>SESSION LOG</span><h2>{phase}阶段 · {phase === "主要" ? `第 ${cycle} 巡` : `第 ${round} 回合`}</h2></div><button className="clear-log" onClick={() => setLogs([])}>清空</button></div>
-            <div className="log-list">{logs.length ? logs.slice().reverse().map((entry) => <article className={`log-entry ${entry.tone}`} key={entry.id}><span>{phase === "主要" ? `C${entry.cycle ?? cycle}` : `R${entry.round}`}</span><p>{entry.text}</p></article>) : <p className="empty-log">还没有记录。</p>}</div>
+            <div className="log-list">{logs.length ? logs.slice().reverse().map((entry) => <article className={`log-entry ${entry.tone}`} key={entry.id}><span>{phase === "主要" ? `C${entry.cycle ?? cycle}` : `R${entry.round}`}</span><p>{tableSafe ? "桌面安全模式：记录内容已隐藏" : entry.text}</p></article>) : <p className="empty-log">还没有记录。</p>}</div>
           </> : <div className="rules-list">
             <article><span>01</span><div><h3>行为判定</h3><p>目标值＝5＋指定特技到最近已习得特技的格数。通常投 2D6，达到目标值即成功。</p></div></article>
             <article><span>02</span><div><h3>特殊骰点</h3><p>通常 12 为大成功、2 为大失败。战斗攻击处理中，大失败值改为当前布局值。</p></div></article>
@@ -902,6 +1087,8 @@ export default function ShinobigamiConsole() {
             <article><span>06</span><div><h3>BCDice 风格</h3><p>本工具日志记录 SG 命令。额外骰池采用 nSG 的“投 n 颗、取高 2 颗”方式。</p></div></article>
             <article><span>07</span><div><h3>情报共享</h3><p>当你抱有感情的角色直接获得情报时，你自动获得同一情报；共享所得不会继续触发连锁共享。</p></div></article>
             <article><span>08</span><div><h3>巡与场景</h3><p>主要阶段每位 PC 每巡有一次主要行动。场景玩家必须登场，回复、情报、感情、战斗或计划判定择一处理。</p></div></article>
+            <article><span>09</span><div><h3>宣言窗口</h3><p>同一时机可能有多个效果时，先询问是否继续宣言；确认无人追加后再推进回避或效果，避免错过时机后回溯。</p></div></article>
+            <article><span>10</span><div><h3>同速批次</h3><p>同一布局的攻击视为同时发生；先完成同速角色的攻击，再统一应用生命减少、逆止、变调与附带效果。</p></div></article>
           </div>}
           <div className="log-footer"><button onClick={clearSession}>重置示例团</button><p>本工具仅提供规则辅助，特殊效果以 GM 裁定为准。</p></div>
         </aside>

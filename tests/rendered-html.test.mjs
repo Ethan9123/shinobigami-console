@@ -9,7 +9,7 @@ test("product page replaces the starter preview", async () => {
 
   assert.match(page, /ShinobigamiConsole/);
   assert.match(layout, /lang="zh-CN"/);
-  assert.match(layout, /og-v03\.png/);
+  assert.match(layout, /og-v04\.png/);
   assert.match(product, /秘密布局|布局阶段/);
   assert.match(product, /BCDice 风格|BCDice STYLE/i);
   assert.match(product, /忍法配置/);
@@ -20,5 +20,9 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /纯文字角色卡导入/);
   assert.match(product, /成功率/);
   assert.match(product, /智能提示/);
+  assert.match(product, /开团公告与约束/);
+  assert.match(product, /本地资料体检/);
+  assert.match(product, /当前结算流程/);
+  assert.match(product, /MVP 0\.4/);
   assert.doesNotMatch(page + layout, /codex-preview|SkeletonPreview/);
 });

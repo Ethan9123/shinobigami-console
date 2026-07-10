@@ -29,3 +29,37 @@ test("plain-text importer recognizes local workbook style and Japanese skills", 
   assert.deepEqual(parsed.skills.sort(), ["刀术", "见敌术"]);
   assert.deepEqual(parsed.ninpoIds, ["close"]);
 });
+
+test("pre-flight gate separates hard blockers from adjustable build quotas", () => {
+  const character = {
+    id: "pc1",
+    name: "测试忍者",
+    role: "PC",
+    faction: "鞍马神流",
+    skills: ["刀术", "走法", "见敌术", "潜伏术", "意气", "第六感"],
+    ninpoIds: ["close", "cross", "shoot", "blast", "emotion"],
+    mission: "完成使命",
+    secret: "私人秘密",
+    tools: { 兵粮丸: 0, 神通丸: 1, 遁甲符: 1 },
+  };
+  const handout = {
+    id: "h1",
+    slot: "PC1",
+    assignedCharacterId: "pc1",
+    recommendedFaction: "鞍马神流",
+    delivered: false,
+    reviewed: false,
+    questionsResolved: false,
+  };
+  const requirements = { requiredSkills: 6, requiredNinpoSlots: 4, requiredTools: 2 };
+  const blocked = rules.evaluateSessionReadiness([character], [handout], 1, requirements);
+  assert.deepEqual(blocked.map((issue) => issue.code).sort(), ["card-unreviewed", "questions-open", "secret-undelivered"]);
+
+  const ready = rules.evaluateSessionReadiness(
+    [character],
+    [{ ...handout, delivered: true, reviewed: true, questionsResolved: true }],
+    1,
+    requirements,
+  );
+  assert.deepEqual(ready, []);
+});
