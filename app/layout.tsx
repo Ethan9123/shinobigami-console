@@ -6,19 +6,19 @@ export async function generateMetadata(): Promise<Metadata> {
   const incoming = await headers();
   const host = incoming.get("x-forwarded-host") ?? incoming.get("host") ?? "localhost:3000";
   const protocol = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og.png`;
+  const imageUrl = `${protocol}://${host}/og-v03.png`;
 
   return {
     title: "忍神控制台",
-    description: "角色管理、2D6 判定、秘密布局与战斗记录一体化的《忍神》跑团辅助工具。",
+    description: "场景巡次、人物关系、情报共享、精确判定与秘密布局一体化的《忍神》跑团辅助工具。",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "忍神控制台",
-      description: "从秘密布局到忍法判定，一处完成团务战斗管理。",
+      description: "场景、情报、判定，一处掌控。",
       type: "website",
-      images: [{ url: imageUrl, width: 1672, height: 941, alt: "忍神控制台" }],
+      images: [{ url: imageUrl, width: 1730, height: 909, alt: "忍神控制台 v0.3" }],
     },
-    twitter: { card: "summary_large_image", title: "忍神控制台", description: "秘密布局、2D6 判定与战斗记录工具。", images: [imageUrl] },
+    twitter: { card: "summary_large_image", title: "忍神控制台", description: "场景、情报、判定，一处掌控。", images: [imageUrl] },
   };
 }
 

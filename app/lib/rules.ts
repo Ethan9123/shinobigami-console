@@ -14,7 +14,7 @@ export const SKILL_TABLE: Record<FieldName, string[]> = {
 export type Ninpo = {
   id: string;
   name: string;
-  kind: "攻击" | "支援";
+  kind: "攻击" | "支援" | "装备";
   skill: string;
   range: number;
   cost: number;
@@ -34,6 +34,15 @@ export const COMMON_NINPO: Ninpo[] = [
 
 export const CONDITIONS = ["麻痹", "重伤", "故障", "失忆", "行踪不明", "诅咒", "逆止"];
 
+export const EMOTION_PAIRS = [
+  ["共鸣", "猜疑"],
+  ["友情", "愤怒"],
+  ["爱情", "嫉妒"],
+  ["忠诚", "轻蔑"],
+  ["憧憬", "自卑"],
+  ["狂信", "杀意"],
+] as const;
+
 type SkillPosition = { field: number; row: number };
 
 export function findSkillPosition(skill: string): SkillPosition | null {
@@ -44,20 +53,194 @@ export function findSkillPosition(skill: string): SkillPosition | null {
   return null;
 }
 
-export function skillDistance(from: string, to: string): number {
+export function skillDistance(from: string, to: string, closedGaps: boolean[] = []): number {
   const a = findSkillPosition(from);
   const b = findSkillPosition(to);
   if (!a || !b) return 7;
-  return Math.abs(a.row - b.row) + Math.abs(a.field - b.field) * 2;
+  const firstField = Math.min(a.field, b.field);
+  const lastField = Math.max(a.field, b.field);
+  let horizontal = 0;
+  for (let boundary = firstField; boundary < lastField; boundary += 1) {
+    horizontal += closedGaps[boundary] ? 1 : 2;
+  }
+  return Math.abs(a.row - b.row) + horizontal;
 }
 
-export function nearestSkill(learned: string[], target: string) {
+export function nearestSkill(learned: string[], target: string, closedGaps: boolean[] = []) {
   if (!target || target === "自由") return { skill: learned[0] ?? "未选择", distance: 0, target: 5 };
   if (!learned.length) return { skill: "无可用特技", distance: 7, target: 12 };
   const sorted = learned
-    .map((skill) => ({ skill, distance: skillDistance(skill, target) }))
+    .map((skill) => ({ skill, distance: skillDistance(skill, target, closedGaps) }))
     .sort((a, b) => a.distance - b.distance);
   return { ...sorted[0], target: Math.min(12, 5 + sorted[0].distance) };
+}
+
+export type CheckOdds = {
+  success: number;
+  critical: number;
+  fumble: number;
+  ordinarySuccess: number;
+};
+
+export function calculateCheckOdds(
+  diceCount: number,
+  target: number,
+  modifier = 0,
+  special = 12,
+  fumble = 2,
+): CheckOdds {
+  const safeCount = Math.max(2, Math.min(6, Math.floor(diceCount)));
+  const totalOutcomes = 6 ** safeCount;
+  let critical = 0;
+  let fumbleCount = 0;
+  let ordinarySuccess = 0;
+  const dice = Array.from({ length: safeCount }, () => 1);
+
+  const visit = (index: number) => {
+    if (index < safeCount) {
+      for (let value = 1; value <= 6; value += 1) {
+        dice[index] = value;
+        visit(index + 1);
+      }
+      return;
+    }
+    const kept = [...dice].sort((a, b) => b - a).slice(0, 2);
+    const raw = kept[0] + kept[1];
+    if (raw <= fumble) fumbleCount += 1;
+    else if (raw >= special) critical += 1;
+    else if (raw + modifier >= target) ordinarySuccess += 1;
+  };
+  visit(0);
+
+  return {
+    success: (ordinarySuccess + critical) / totalOutcomes,
+    critical: critical / totalOutcomes,
+    fumble: fumbleCount / totalOutcomes,
+    ordinarySuccess: ordinarySuccess / totalOutcomes,
+  };
+}
+
+const SKILL_ALIASES: Record<string, string> = {
+  絡繰術: "机关术",
+  火術: "火术",
+  水術: "水术",
+  針術: "针术",
+  仕込み: "藏兵术",
+  衣装術: "衣装术",
+  縄術: "绳术",
+  登術: "登术",
+  拷問術: "拷问术",
+  壊器術: "坏器术",
+  掘削術: "掘削术",
+  騎乗術: "骑乘术",
+  砲術: "炮术",
+  手裏剣術: "手里剑术",
+  身体操術: "身体操术",
+  歩法: "步法",
+  走法: "走法",
+  飛術: "飞术",
+  骨法術: "骨法术",
+  刀術: "刀术",
+  生存術: "生存术",
+  潜伏術: "潜伏术",
+  遁走術: "遁走术",
+  盗聴術: "盗听术",
+  腹話術: "腹语术",
+  隠形術: "隐形术",
+  変装術: "变装术",
+  分身の術: "分身术",
+  隠蔽術: "隐蔽术",
+  罠術: "陷阱术",
+  医術: "医术",
+  毒術: "毒术",
+  調査術: "调查术",
+  詐術: "诈术",
+  対人術: "对人术",
+  遊芸: "游艺",
+  九ノ一の術: "色诱术",
+  傀儡の術: "傀儡术",
+  流言の術: "流言术",
+  経済力: "经济力",
+  兵糧術: "兵粮术",
+  鳥獣術: "鸟兽术",
+  野戦術: "野战术",
+  地の利: "地利",
+  用兵術: "用兵术",
+  記憶術: "记忆术",
+  見敵術: "见敌术",
+  暗号術: "暗号术",
+  伝達術: "传达术",
+  人脈: "人脉",
+  異形化: "异形化",
+  召喚術: "召唤术",
+  死霊術: "死灵术",
+  結界術: "结界术",
+  封術: "封术",
+  言霊術: "言灵术",
+  幻術: "幻术",
+  瞳術: "瞳术",
+  千里眼の術: "千里眼术",
+  憑依術: "凭依术",
+  呪術: "咒术",
+};
+
+export type ParsedCharacterText = {
+  name?: string;
+  faction?: string;
+  rank?: string;
+  mission?: string;
+  secret?: string;
+  ougi?: string;
+  skills: string[];
+  ninpoIds: string[];
+  recognized: number;
+};
+
+export function parseCharacterText(input: string): ParsedCharacterText {
+  const text = input.replace(/\r/g, "").trim();
+  const result: ParsedCharacterText = { skills: [], ninpoIds: [], recognized: 0 };
+  if (!text) return result;
+
+  const labels: Array<[keyof Pick<ParsedCharacterText, "name" | "faction" | "rank" | "mission" | "secret" | "ougi">, RegExp]> = [
+    ["name", /^(?:名前|姓名|角色名)\s*[：:]\s*(.*)$/i],
+    ["faction", /^(?:流派|所属流派)\s*[：:]\s*(.*)$/i],
+    ["rank", /^(?:階級|阶级|等級|等级)\s*[：:]\s*(.*)$/i],
+    ["mission", /^【?(?:使命)】?\s*[：:]?\s*(.*)$/i],
+    ["secret", /^【?(?:秘密)】?\s*[：:]?\s*(.*)$/i],
+    ["ougi", /^(?:奥義名|奧義名|奥义名|奥義|奧義|奥义)\s*[：:]\s*(.*)$/i],
+  ];
+  let activeBlock: "mission" | "secret" | null = null;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let matched = false;
+    for (const [key, pattern] of labels) {
+      const hit = line.match(pattern);
+      if (!hit) continue;
+      const value = hit[1]?.trim();
+      if (value) result[key] = value;
+      activeBlock = key === "mission" || key === "secret" ? key : null;
+      matched = true;
+      break;
+    }
+    if (!matched && activeBlock && !/^(?:●|■|――|忍法|背景|人物|特技)/.test(line)) {
+      result[activeBlock] = [result[activeBlock], line].filter(Boolean).join("\n");
+    }
+  }
+
+  const allSkills = Object.values(SKILL_TABLE).flat();
+  for (const skill of allSkills) {
+    if (text.includes(skill)) result.skills.push(skill);
+  }
+  for (const [alias, normalized] of Object.entries(SKILL_ALIASES)) {
+    if (text.includes(alias) && !result.skills.includes(normalized)) result.skills.push(normalized);
+  }
+  for (const ninpo of COMMON_NINPO) {
+    if (text.includes(ninpo.name)) result.ninpoIds.push(ninpo.id);
+  }
+  result.recognized = [result.name, result.faction, result.rank, result.mission, result.secret, result.ougi]
+    .filter(Boolean).length + result.skills.length + result.ninpoIds.length;
+  return result;
 }
 
 export function makeLife(): Record<FieldName, boolean> {

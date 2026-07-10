@@ -1,98 +1,43 @@
-# vinext-starter
+# 忍神控制台
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+面向《忍神 / Shinobigami》线下与线上团务的半自动辅助工具。它把角色卡、行为判定、秘密布局、场景巡次、人物关系和情报流向集中到一个本地优先的网页里，同时保留 GM 的最终裁定权。
 
-## Prerequisites
+> 非官方二次创作工具。本仓库不包含规则书、模组正文或完整忍法资料，使用时仍需合法持有原作资料。
 
-- Node.js `>=22.13.0`
+## v0.3 功能
 
-## Quick Start
+- 场景导演：管理巡数、场景玩家、登场人物、主要行动和已行动状态。
+- 主持事件：按“第几巡、第几个场景”安排提醒，并记录曝光值、线索或倒计时等自定义进度。
+- 关系与情报：记录定向正负感情；角色直接获得秘密、居所或奥义情报时，自动结算一次不连锁的情报共享。
+- 智能提示：检查未行动角色、缺少场景行动、到点事件、布局缺失、同布局、耗尽花费、无可用特技和缺失使命。
+- 智能导入：识别自动角色卡“纯文字化”格式以及常见日文特技名。
+- 精确概率：按 BCDice 的 `nSG@s#f>=x` 逻辑枚举骰池，显示成功、大成功和大失败概率。
+- 正确代用：失去生命力的分野不会再被用于代用；支持五个特技空隙的填黑状态。
+- 战斗辅助：秘密布局、行动顺序、距离与累计花费检查、忍法使用记录、生命力、变调、忍具和撤销。
+- 本地保存：浏览器自动保存，并支持 JSON 导入导出；无需服务器账号。
+
+## 使用
 
 ```bash
 npm install
 npm run dev
+```
+
+检查项目：
+
+```bash
 npm run build
+npm run lint
+npm test
 ```
 
-This starter does not use `wrangler.jsonc`.
+## 数据与隐私
 
-## Included Shape
+- 团务数据默认只保存在当前浏览器的本地存储中。
+- 纯文字角色卡在浏览器内解析，不会上传到外部服务。
+- “桌面安全”会隐藏角色秘密，但不等同于多人权限系统；分享屏幕前仍应确认当前视图。
+- JSON 存档可能包含秘密、奥义和主持信息，请按敏感文件保管。
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+## 设计依据
 
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+实现参考了 BCDice 的 ShinobiGami 命令格式、公开角色卡字段、官方场景创作表的结构，以及多个开源 TRPG 工具中“本地优先、关系权限、规则条件自动化”的做法。规则冲突和扩展忍法效果仍以 GM 与所用版本规则书为准。
