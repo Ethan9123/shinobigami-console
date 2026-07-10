@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="8" fill="#11110f"/>
+  <path d="M9 11h46v42H9z" fill="#c83a32" transform="rotate(-3 32 32)"/>
+  <text x="32" y="43" text-anchor="middle" font-size="37" font-weight="900" font-family="serif" fill="#fffdf5">忍</text>
+</svg>
