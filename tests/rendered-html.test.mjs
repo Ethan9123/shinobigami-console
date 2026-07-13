@@ -6,6 +6,8 @@ test("product page replaces the starter preview", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
   const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const tutorial = await readFile(new URL("../app/components/tutorial/TutorialRunner.tsx", import.meta.url), "utf8");
+  const tutorialData = await readFile(new URL("../app/lib/tutorial.ts", import.meta.url), "utf8");
 
   assert.match(page, /ShinobigamiConsole/);
   assert.match(layout, /lang="zh-CN"/);
@@ -23,6 +25,9 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 0\.4/);
+  assert.match(product, /MVP 0\.5/);
+  assert.match(product + tutorial, /第一次忍务/);
+  assert.match(tutorial + tutorialData, /雨夜零号线/);
+  assert.match(tutorial, /安全工具/);
   assert.doesNotMatch(page + layout, /codex-preview|SkeletonPreview/);
 });

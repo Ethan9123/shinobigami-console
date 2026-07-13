@@ -9,14 +9,21 @@ const rulesOutput = ts.transpileModule(rulesSource, {
 }).outputText;
 const rulesUrl = `data:text/javascript;base64,${Buffer.from(rulesOutput).toString("base64")}`;
 
+const tutorialSource = await readFile(new URL("../app/lib/tutorial.ts", import.meta.url), "utf8");
+const tutorialOutput = ts.transpileModule(tutorialSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const tutorialUrl = `data:text/javascript;base64,${Buffer.from(tutorialOutput).toString("base64")}`;
+
 const sessionSource = (await readFile(new URL("../app/lib/session.ts", import.meta.url), "utf8"))
-  .replaceAll('"./rules"', `"${rulesUrl}"`);
+  .replaceAll('"./rules"', `"${rulesUrl}"`)
+  .replaceAll('"./tutorial"', `"${tutorialUrl}"`);
 const sessionOutput = ts.transpileModule(sessionSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const session = await import(`data:text/javascript;base64,${Buffer.from(sessionOutput).toString("base64")}`);
 
-test("v0.3 save migrates to the v0.4 pre-flight and resolution schema", () => {
+test("v0.3 save migrates to the v0.5 guided-session schema", () => {
   const migrated = session.normalizeGameState({
     characters: [{
       id: "legacy-pc",
@@ -33,12 +40,13 @@ test("v0.3 save migrates to the v0.4 pre-flight and resolution schema", () => {
     phase: "主要",
   });
 
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.equal(migrated.selectedId, "legacy-pc");
   assert.equal(migrated.brief.playerCount, 1);
   assert.equal(migrated.handouts.length, 1);
   assert.equal(migrated.handouts[0].assignedCharacterId, "legacy-pc");
   assert.equal(migrated.resolution, null);
+  assert.equal(migrated.tutorial.status, "off");
   assert.deepEqual(migrated.characters[0].closedGaps, [false, false, false, false, false]);
   assert.deepEqual(migrated.characters[0].tools, { 兵粮丸: 0, 神通丸: 1, 遁甲符: 0 });
 });

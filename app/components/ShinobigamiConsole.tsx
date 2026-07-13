@@ -39,6 +39,9 @@ import type {
   SceneCue,
   SessionBrief,
 } from "../lib/session";
+import { getTutorialStep, RAIN_ZERO_LINE } from "../lib/tutorial";
+import type { TutorialState } from "../lib/tutorial";
+import TutorialRunner from "./tutorial/TutorialRunner";
 
 const STORAGE_KEY = "shinobigami-console-v1";
 const INITIAL_STATE = createInitialGameState();
@@ -54,7 +57,7 @@ export default function ShinobigamiConsole() {
   const [revealed, setRevealed] = useState(INITIAL_STATE.revealed);
   const [logs, setLogs] = useState<LogEntry[]>(INITIAL_STATE.logs);
   const [history, setHistory] = useState<GameState[]>([]);
-  const [view, setView] = useState<"prep" | "battle" | "sheet" | "director">("prep");
+  const [view, setView] = useState<"tutorial" | "prep" | "battle" | "sheet" | "director">("tutorial");
   const [targetSkill, setTargetSkill] = useState("刀术");
   const [modifier, setModifier] = useState(0);
   const [lastRoll, setLastRoll] = useState<{ dice: number[]; kept: number[]; total: number; result: string } | null>(null);
@@ -84,6 +87,7 @@ export default function ShinobigamiConsole() {
   const [brief, setBrief] = useState<SessionBrief>(INITIAL_STATE.brief);
   const [handouts, setHandouts] = useState<Handout[]>(INITIAL_STATE.handouts);
   const [resolution, setResolution] = useState<Resolution | null>(INITIAL_STATE.resolution);
+  const [tutorial, setTutorial] = useState<TutorialState>(INITIAL_STATE.tutorial);
   const [emotionFromId, setEmotionFromId] = useState(INITIAL_STATE.characters[0].id);
   const [emotionToId, setEmotionToId] = useState(INITIAL_STATE.characters[1].id);
   const [emotionIndex, setEmotionIndex] = useState(0);
@@ -210,6 +214,7 @@ export default function ShinobigamiConsole() {
         setBrief(restored.brief);
         setHandouts(restored.handouts);
         setResolution(restored.resolution);
+        setTutorial(restored.tutorial);
       }
       setHydrated(true);
     });
@@ -218,18 +223,18 @@ export default function ShinobigamiConsole() {
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      schemaVersion: 4,
+      schemaVersion: 5,
       characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
       cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
-      brief, handouts, resolution,
+      brief, handouts, resolution, tutorial,
     }));
-  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, hydrated]);
+  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, tutorial, hydrated]);
 
   const currentState = (): GameState => ({
-    schemaVersion: 4,
+    schemaVersion: 5,
     characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
     cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
-    brief, handouts, resolution,
+    brief, handouts, resolution, tutorial,
   });
   const checkpoint = () => setHistory((items) => [...items.slice(-19), cloneState(currentState())]);
   const addLog = (text: string, tone: LogEntry["tone"] = "action", logCycle = cycle) => {
@@ -263,6 +268,7 @@ export default function ShinobigamiConsole() {
     setBrief(previous.brief);
     setHandouts(previous.handouts);
     setResolution(previous.resolution);
+    setTutorial(previous.tutorial);
     setHistory((items) => items.slice(0, -1));
   };
 
@@ -740,12 +746,81 @@ export default function ShinobigamiConsole() {
         setBrief(parsed.brief);
         setHandouts(parsed.handouts);
         setResolution(parsed.resolution);
+        setTutorial(parsed.tutorial);
       } catch {
         addLog("存档无法读取，请确认文件来自本控制台。", "danger");
       }
     };
     reader.readAsText(file);
     event.target.value = "";
+  };
+
+  const startTutorial = (next: TutorialState) => {
+    checkpoint();
+    const tutorialCharacters = RAIN_ZERO_LINE.characters.map(({ character }) => JSON.parse(JSON.stringify(character)) as Character);
+    const hero = tutorialCharacters.find((character) => character.id === RAIN_ZERO_LINE.setup.heroId) ?? tutorialCharacters[0];
+    const enemy = tutorialCharacters.find((character) => character.id === RAIN_ZERO_LINE.setup.enemyId) ?? tutorialCharacters[1];
+    const tutorialBrief: SessionBrief = {
+      title: RAIN_ZERO_LINE.meta.title,
+      regulation: "现代篇",
+      scenarioType: "协力型（原创单人教学变体）",
+      playerCount: 1,
+      cycles: RAIN_ZERO_LINE.meta.cycles,
+      rank: "中忍",
+      characterMode: "新卡",
+      gmDifficulty: "系统引导",
+      allowedRules: "基本规则概念；不使用背景、下位流派或扩展规则",
+      submissionDeadline: "",
+      requirements: { requiredSkills: 6, requiredNinpoSlots: 3, requiredTools: 3 },
+    };
+    const tutorialHandouts = makeDefaultHandouts(tutorialCharacters, 1).map((handout) => ({
+      ...handout,
+      assignedCharacterId: hero.id,
+      publicMission: hero.mission,
+      privateSecret: hero.secret,
+      recommendedFaction: hero.faction,
+      delivered: true,
+      reviewed: true,
+      questionsResolved: true,
+    }));
+    setCharacters(tutorialCharacters);
+    setSelectedId(hero.id);
+    setTargetId(enemy.id);
+    setRound(1);
+    setRevealed(false);
+    setPhase("导入");
+    setTurnIndex(0);
+    setCustomNinpo([]);
+    setCycle(1);
+    setSceneNumber(1);
+    setSceneOwnerId(hero.id);
+    setSceneParticipantIds([hero.id]);
+    setSceneAction("未定");
+    setSceneNote("");
+    setEmotions([]);
+    setIntel([]);
+    setCues([
+      { id: "rain-zero-cue-roof", title: "无面车掌带着白狐匣登上车顶", cycle: 2, scene: 2, done: false },
+      { id: "rain-zero-cue-ending", title: "公开白狐匣的最后真相", cycle: 2, scene: 3, done: false },
+    ]);
+    setTrackers([{ id: "rain-zero-terminal", name: "距离终点", value: 0, max: 3 }]);
+    setBrief(tutorialBrief);
+    setHandouts(tutorialHandouts);
+    setResolution(null);
+    setTutorial(next);
+    setTableSafe(false);
+    setLogs([{ id: uid("log"), round: 1, cycle: 1, tone: "system", text: "原创教学忍务《雨夜零号线》已载入。系统将扮演主持人与 NPC。" }]);
+    setView("tutorial");
+    setLastRoll(null);
+  };
+
+  const changeTutorial = (next: TutorialState, eventText?: string) => {
+    setTutorial(next);
+    const nextStep = getTutorialStep(next);
+    if (nextStep?.phase === "导入" || nextStep?.phase === "主要" || nextStep?.phase === "高潮") setPhase(nextStep.phase);
+    if (nextStep?.id.startsWith("cycle-2")) setCycle(2);
+    if (nextStep?.id === "climax-battle") setRevealed(true);
+    if (eventText) addLog(eventText, eventText.includes("失败") || eventText.includes("暂停") ? "danger" : "action");
   };
 
   const clearSession = () => {
@@ -772,8 +847,9 @@ export default function ShinobigamiConsole() {
     setBrief(fresh.brief);
     setHandouts(fresh.handouts);
     setResolution(fresh.resolution);
+    setTutorial(fresh.tutorial);
     setLogs(fresh.logs);
-    setView("prep");
+    setView("tutorial");
     setLastRoll(null);
   };
 
@@ -785,7 +861,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 0.4</span>
+          <span className="version">MVP 0.5</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -796,6 +872,7 @@ export default function ShinobigamiConsole() {
       </header>
 
       <nav className="mode-tabs" aria-label="主要视图">
+        <button className={view === "tutorial" ? "active first-mission-tab" : "first-mission-tab"} onClick={() => setView("tutorial")}>第一次忍务</button>
         <button className={view === "prep" ? "active" : ""} onClick={() => setView("prep")}>开团准备</button>
         <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>战斗控制台</button>
         <button className={view === "director" ? "active" : ""} onClick={() => setView("director")}>场景导演</button>
@@ -810,8 +887,8 @@ export default function ShinobigamiConsole() {
         </div>
       </nav>
 
-      <div className="workspace">
-        <aside className="character-rail panel">
+      <div className={`workspace ${view === "tutorial" ? "tutorial-workspace" : ""}`}>
+        {view !== "tutorial" && <aside className="character-rail panel">
           <div className="panel-heading"><div><span>CHARACTERS</span><h2>登场角色</h2></div><span className="counter">{characters.length}</span></div>
           <div className="character-list">
             {characters.map((character) => {
@@ -829,10 +906,19 @@ export default function ShinobigamiConsole() {
           </div>
           <div className="rail-actions"><button onClick={() => addCharacter("PC")}>＋ PC</button><button onClick={() => addCharacter("NPC")}>＋ NPC</button></div>
           <button className="danger-link" onClick={removeSelected} disabled={characters.length <= 1}>移除当前角色</button>
-        </aside>
+        </aside>}
 
         <section className="main-stage">
-          {view === "prep" ? (
+          {view === "tutorial" ? (
+            <TutorialRunner
+              state={tutorial}
+              tableSafe={tableSafe}
+              onChange={changeTutorial}
+              onStart={startTutorial}
+              onToggleTableSafe={() => setTableSafe((value) => !value)}
+              onOpenConsole={(nextView) => setView(nextView)}
+            />
+          ) : view === "prep" ? (
             <>
               <section className="panel prep-brief-panel">
                 <div className="panel-heading battle-heading">
@@ -1062,14 +1148,14 @@ export default function ShinobigamiConsole() {
             </section>
           )}
 
-          <section className="panel status-panel">
+          {view !== "tutorial" && <section className="panel status-panel">
             <div className="status-block life-block"><span className="mini-label">LIFE / 生命力</span><div className="field-toggles">{FIELD_NAMES.map((field) => <button key={field} className={selected.life[field] ? "healthy" : "lost"} onClick={() => toggleLife(field)}><i />{field}</button>)}</div><div className="extra-life"><span>追加生命力</span><button onClick={() => updateCharacter(selected.id, { extraLife: Math.max(0, selected.extraLife - 1) })}>−</button><strong>{selected.extraLife}</strong><button onClick={() => updateCharacter(selected.id, { extraLife: selected.extraLife + 1 })}>＋</button><button className={`active-toggle ${selected.active ? "" : "dropped"}`} onClick={toggleActive}>{selected.active ? "参战中" : "已脱落"}</button></div></div>
             <div className="status-block"><span className="mini-label">CONDITION / 变调·状态</span><div className="condition-list">{CONDITIONS.map((condition) => <button key={condition} className={selected.conditions.includes(condition) ? "active" : ""} onClick={() => toggleCondition(condition)}>{condition}</button>)}</div></div>
             <div className="status-block"><span className="mini-label">TOOLS / 忍具</span><div className="tool-list">{(Object.keys(selected.tools) as Array<keyof Character["tools"]>).map((tool) => <div key={tool}><span>{tool}</span><button onClick={() => updateTool(tool, -1)}>−</button><b>{selected.tools[tool]}</b><button onClick={() => updateTool(tool, 1)}>＋</button></div>)}</div></div>
-          </section>
+          </section>}
         </section>
 
-        <aside className="log-panel panel">
+        {view !== "tutorial" && <aside className="log-panel panel">
           <div className="side-tabs"><button className={sideView === "assistant" ? "active" : ""} onClick={() => setSideView("assistant")}>智能提示</button><button className={sideView === "log" ? "active" : ""} onClick={() => setSideView("log")}>团务记录</button><button className={sideView === "rules" ? "active" : ""} onClick={() => setSideView("rules")}>规则速查</button></div>
           {sideView === "assistant" ? <div className="assistant-view">
             <div className="panel-heading"><div><span>RULE-AWARE ASSISTANT</span><h2>当前状态检查</h2></div><span className="counter">{smartHints.length}</span></div>
@@ -1091,7 +1177,7 @@ export default function ShinobigamiConsole() {
             <article><span>10</span><div><h3>同速批次</h3><p>同一布局的攻击视为同时发生；先完成同速角色的攻击，再统一应用生命减少、逆止、变调与附带效果。</p></div></article>
           </div>}
           <div className="log-footer"><button onClick={clearSession}>重置示例团</button><p>本工具仅提供规则辅助，特殊效果以 GM 裁定为准。</p></div>
-        </aside>
+        </aside>}
       </div>
     </main>
   );
