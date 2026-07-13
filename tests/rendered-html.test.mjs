@@ -11,7 +11,7 @@ test("product page replaces the starter preview", async () => {
 
   assert.match(page, /ShinobigamiConsole/);
   assert.match(layout, /lang="zh-CN"/);
-  assert.match(layout, /og-v04\.png/);
+  assert.match(layout, /og\.png/);
   assert.match(product, /秘密布局|布局阶段/);
   assert.match(product, /BCDice 风格|BCDice STYLE/i);
   assert.match(product, /忍法配置/);
