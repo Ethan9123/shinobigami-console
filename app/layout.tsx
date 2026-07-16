@@ -11,15 +11,15 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: "忍神控制台",
-    description: "无需主持人或规则预习，从安全约定、角色与秘密、两巡调查到高潮战斗，完整跑完第一次《忍神》忍务。",
+    description: "本地优先的《忍神》团务辅助工具：角色工作台、场景与跑团记录导演、布局战斗和逐步结算。",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "忍神控制台",
-      description: "从零开始，跑完第一次忍务。",
+      description: "角色工作台 · 场景导演 · 战斗结算",
       type: "website",
-      images: [{ url: imageUrl, width: 1730, height: 909, alt: "忍神控制台：从零开始，跑完第一次忍务" }],
+      images: [{ url: imageUrl, width: 1730, height: 909, alt: "忍神控制台：角色工作台、场景导演与战斗结算" }],
     },
-    twitter: { card: "summary_large_image", title: "忍神控制台", description: "从零开始，跑完第一次忍务。", images: [imageUrl] },
+    twitter: { card: "summary_large_image", title: "忍神控制台", description: "角色工作台 · 场景导演 · 战斗结算", images: [imageUrl] },
   };
 }
 

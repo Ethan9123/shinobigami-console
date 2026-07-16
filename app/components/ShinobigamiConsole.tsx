@@ -41,6 +41,8 @@ import type {
 } from "../lib/session";
 import { getTutorialStep, RAIN_ZERO_LINE } from "../lib/tutorial";
 import type { TutorialState } from "../lib/tutorial";
+import { parseTranscript } from "../lib/transcript";
+import type { TranscriptArchive, TranscriptEntry } from "../lib/transcript";
 import TutorialRunner from "./tutorial/TutorialRunner";
 
 const STORAGE_KEY = "shinobigami-console-v1";
@@ -74,6 +76,7 @@ export default function ShinobigamiConsole() {
   const [customRange, setCustomRange] = useState(1);
   const [customCost, setCustomCost] = useState(0);
   const [customKind, setCustomKind] = useState<Ninpo["kind"]>("攻击");
+  const [customSummary, setCustomSummary] = useState("");
   const [cycle, setCycle] = useState(1);
   const [sceneNumber, setSceneNumber] = useState(1);
   const [sceneOwnerId, setSceneOwnerId] = useState(INITIAL_STATE.sceneOwnerId);
@@ -88,6 +91,11 @@ export default function ShinobigamiConsole() {
   const [handouts, setHandouts] = useState<Handout[]>(INITIAL_STATE.handouts);
   const [resolution, setResolution] = useState<Resolution | null>(INITIAL_STATE.resolution);
   const [tutorial, setTutorial] = useState<TutorialState>(INITIAL_STATE.tutorial);
+  const [transcript, setTranscript] = useState<TranscriptArchive | null>(INITIAL_STATE.transcript);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [transcriptQuery, setTranscriptQuery] = useState("");
+  const [transcriptSpeaker, setTranscriptSpeaker] = useState("");
+  const [transcriptSceneId, setTranscriptSceneId] = useState("all");
   const [emotionFromId, setEmotionFromId] = useState(INITIAL_STATE.characters[0].id);
   const [emotionToId, setEmotionToId] = useState(INITIAL_STATE.characters[1].id);
   const [emotionIndex, setEmotionIndex] = useState(0);
@@ -103,6 +111,8 @@ export default function ShinobigamiConsole() {
   const [importText, setImportText] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const portraitRef = useRef<HTMLInputElement>(null);
+  const transcriptRef = useRef<HTMLInputElement>(null);
 
   const selected = characters.find((character) => character.id === selectedId) ?? characters[0];
   const target = characters.find((character) => character.id === targetId && character.id !== selected?.id && character.active)
@@ -135,6 +145,15 @@ export default function ShinobigamiConsole() {
     [diceCount, check.target, modifier, fumbleLine],
   );
   const importPreview = useMemo(() => parseCharacterText(importText), [importText]);
+  const filteredTranscript = useMemo(() => {
+    if (!transcript) return [];
+    const query = transcriptQuery.trim().toLocaleLowerCase("zh-CN");
+    return transcript.entries.filter((entry) => (
+      (transcriptSceneId === "all" || entry.sceneId === transcriptSceneId)
+      && (!transcriptSpeaker || entry.speaker === transcriptSpeaker)
+      && (!query || `${entry.speaker} ${entry.text}`.toLocaleLowerCase("zh-CN").includes(query))
+    )).slice(0, 800);
+  }, [transcript, transcriptQuery, transcriptSceneId, transcriptSpeaker]);
   const dueCues = useMemo(
     () => cues.filter((cue) => !cue.done && (cue.cycle < cycle || (cue.cycle === cycle && cue.scene <= sceneNumber))),
     [cues, cycle, sceneNumber],
@@ -215,6 +234,7 @@ export default function ShinobigamiConsole() {
         setHandouts(restored.handouts);
         setResolution(restored.resolution);
         setTutorial(restored.tutorial);
+        setTranscript(restored.transcript);
       }
       setHydrated(true);
     });
@@ -222,19 +242,23 @@ export default function ShinobigamiConsole() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      schemaVersion: 5,
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      schemaVersion: 6,
       characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
       cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
-      brief, handouts, resolution, tutorial,
-    }));
-  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, tutorial, hydrated]);
+      brief, handouts, resolution, tutorial, transcript,
+      }));
+    } catch {
+      // A large portrait or transcript can exceed the browser quota; JSON export remains available as a fallback.
+    }
+  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, tutorial, transcript, hydrated]);
 
   const currentState = (): GameState => ({
-    schemaVersion: 5,
+    schemaVersion: 6,
     characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
     cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
-    brief, handouts, resolution, tutorial,
+    brief, handouts, resolution, tutorial, transcript,
   });
   const checkpoint = () => setHistory((items) => [...items.slice(-19), cloneState(currentState())]);
   const addLog = (text: string, tone: LogEntry["tone"] = "action", logCycle = cycle) => {
@@ -269,6 +293,7 @@ export default function ShinobigamiConsole() {
     setHandouts(previous.handouts);
     setResolution(previous.resolution);
     setTutorial(previous.tutorial);
+    setTranscript(previous.transcript);
     setHistory((items) => items.slice(0, -1));
   };
 
@@ -281,6 +306,8 @@ export default function ShinobigamiConsole() {
       role, faction: "未选择流派", rank: "中忍", plot: null, active: true, extraLife: 0, life: makeLife(),
       skills: ["刀术"], ninpoIds: ["close", "shoot"], conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "", secret: "", ougi: "", closedGaps: [false, false, false, false, false], acted: false,
+      player: "", age: "", gender: "", cover: "", belief: "", merit: 0, enemy: "", surface: "", story: "", backgrounds: "", portrait: "",
+      ougiSkill: "", ougiEffect: "", ougiStrength: "", ougiWeakness: "",
       tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 0 },
     };
     setCharacters((items) => [...items, character]);
@@ -470,14 +497,83 @@ export default function ShinobigamiConsole() {
       name: importPreview.name ?? selected.name,
       faction: importPreview.faction ?? selected.faction,
       rank: importPreview.rank ?? selected.rank,
+      player: importPreview.player ?? selected.player,
+      age: importPreview.age ?? selected.age,
+      gender: importPreview.gender ?? selected.gender,
+      cover: importPreview.cover ?? selected.cover,
+      belief: importPreview.belief ?? selected.belief,
+      merit: importPreview.merit ?? selected.merit,
+      enemy: importPreview.enemy ?? selected.enemy,
+      surface: importPreview.surface ?? selected.surface,
+      story: importPreview.story ?? selected.story,
+      backgrounds: importPreview.backgrounds ?? selected.backgrounds,
       mission: importPreview.mission ?? selected.mission,
       secret: importPreview.secret ?? selected.secret,
       ougi: importPreview.ougi ?? selected.ougi,
+      ougiSkill: importPreview.ougiSkill ?? selected.ougiSkill,
+      ougiEffect: importPreview.ougiEffect ?? selected.ougiEffect,
+      ougiStrength: importPreview.ougiStrength ?? selected.ougiStrength,
+      ougiWeakness: importPreview.ougiWeakness ?? selected.ougiWeakness,
       skills: importPreview.skills.length ? importPreview.skills : selected.skills,
       ninpoIds: importPreview.ninpoIds.length ? Array.from(new Set([...selected.ninpoIds, ...importPreview.ninpoIds])) : selected.ninpoIds,
     });
     addLog(`已从纯文字角色卡识别 ${importPreview.recognized} 个字段并更新 ${importPreview.name ?? selected.name}。`, "system");
     setImportText("");
+  };
+
+  const importPortrait = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selected || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const maxSide = 720;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        checkpoint();
+        updateCharacter(selected.id, { portrait: canvas.toDataURL("image/jpeg", 0.82) });
+        addLog(`${selected.name} 的本地角色立绘已更新。`, "system");
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const loadTranscript = (text: string, sourceName: string) => {
+    const archive = parseTranscript(text, sourceName);
+    if (!archive.entries.length) {
+      addLog("没有从文本中识别到可用的跑团记录。", "danger");
+      return;
+    }
+    checkpoint();
+    setTranscript(archive);
+    setTranscriptSceneId("all");
+    setTranscriptSpeaker("");
+    setTranscriptQuery("");
+    setTranscriptDraft("");
+    addLog(`已在本机解析《${sourceName}》：${archive.scenes.length} 个片段、${archive.entries.length} 条记录。`, "system");
+  };
+
+  const importTranscriptFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => loadTranscript(String(reader.result), file.name.replace(/\.[^.]+$/, ""));
+    reader.readAsText(file, "utf-8");
+    event.target.value = "";
+  };
+
+  const appendTranscriptEntry = (entry: TranscriptEntry) => {
+    const quote = `${entry.speaker ? `${entry.speaker}：` : ""}${entry.text}`;
+    setSceneNote((note) => [note.trim(), quote].filter(Boolean).join("\n"));
+    addLog(`已将记录第 ${entry.line} 行加入当前场景笔记。`, "system");
   };
 
   const toggleLife = (field: FieldName) => {
@@ -688,11 +784,12 @@ export default function ShinobigamiConsole() {
       skill: customSkill,
       range: customRange,
       cost: customCost,
-      summary: "玩家自定义忍法；具体效果由 GM 裁定。",
+      summary: customSummary.trim() || "玩家自定义忍法；具体效果由 GM 裁定。",
     };
     setCustomNinpo((items) => [...items, ninpo]);
     updateCharacter(selected.id, { ninpoIds: [...selected.ninpoIds, ninpo.id] });
     setCustomName("");
+    setCustomSummary("");
     addLog(`${selected.name} 配置了自定义忍法【${name}】。`, "system");
   };
 
@@ -747,6 +844,7 @@ export default function ShinobigamiConsole() {
         setHandouts(parsed.handouts);
         setResolution(parsed.resolution);
         setTutorial(parsed.tutorial);
+        setTranscript(parsed.transcript);
       } catch {
         addLog("存档无法读取，请确认文件来自本控制台。", "danger");
       }
@@ -808,6 +906,7 @@ export default function ShinobigamiConsole() {
     setHandouts(tutorialHandouts);
     setResolution(null);
     setTutorial(next);
+    setTranscript(null);
     setTableSafe(false);
     setLogs([{ id: uid("log"), round: 1, cycle: 1, tone: "system", text: "原创教学忍务《雨夜零号线》已载入。系统将扮演主持人与 NPC。" }]);
     setView("tutorial");
@@ -848,6 +947,11 @@ export default function ShinobigamiConsole() {
     setHandouts(fresh.handouts);
     setResolution(fresh.resolution);
     setTutorial(fresh.tutorial);
+    setTranscript(fresh.transcript);
+    setTranscriptDraft("");
+    setTranscriptQuery("");
+    setTranscriptSpeaker("");
+    setTranscriptSceneId("all");
     setLogs(fresh.logs);
     setView("tutorial");
     setLastRoll(null);
@@ -861,7 +965,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 0.5</span>
+          <span className="version">MVP 0.6</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -876,7 +980,7 @@ export default function ShinobigamiConsole() {
         <button className={view === "prep" ? "active" : ""} onClick={() => setView("prep")}>开团准备</button>
         <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>战斗控制台</button>
         <button className={view === "director" ? "active" : ""} onClick={() => setView("director")}>场景导演</button>
-        <button className={view === "sheet" ? "active" : ""} onClick={() => setView("sheet")}>角色与特技</button>
+        <button className={view === "sheet" ? "active" : ""} onClick={() => setView("sheet")}>角色工作台</button>
         <div className="phase-tabs" aria-label="团务阶段">
           {(["导入", "主要", "高潮"] as Phase[]).map((item) => <button key={item} className={phase === item ? "active" : ""} onClick={() => changePhase(item)}>{item}</button>)}
         </div>
@@ -1094,6 +1198,34 @@ export default function ShinobigamiConsole() {
                 </section>
               </div>
 
+              <section className="panel transcript-panel">
+                <div className="panel-heading battle-heading">
+                  <div><span>LOCAL REPLAY DESK</span><h2>跑团记录台</h2></div>
+                  <span className="selection-count">{transcript ? `${transcript.scenes.length} 段 · ${transcript.entries.length} 行` : "尚未导入"}</span>
+                </div>
+                {!transcript ? <div className="transcript-empty">
+                  <div><strong>把论坛 Log 或聊天记录变成可检索的场景索引</strong><p>识别「导入场景」「第×巡」「高潮阶段」与 &lt;角色名&gt; 对话；只在当前设备解析，不预置或上传模组正文与秘密。</p><button onClick={() => transcriptRef.current?.click()}>选择 UTF-8 文本</button></div>
+                  <textarea value={transcriptDraft} onChange={(event) => setTranscriptDraft(event.target.value)} placeholder={"也可以直接粘贴记录……\n导入场景：召集\n<角色名> 台词"} />
+                  <button className="parse-transcript" onClick={() => loadTranscript(transcriptDraft, "粘贴记录")} disabled={!transcriptDraft.trim()}>解析粘贴内容</button>
+                  <input ref={transcriptRef} type="file" accept="text/plain,.log,.txt" onChange={importTranscriptFile} hidden />
+                </div> : <>
+                  <div className="transcript-toolbar">
+                    <input aria-label="搜索跑团记录" value={transcriptQuery} onChange={(event) => setTranscriptQuery(event.target.value)} placeholder="搜索台词、判定或关键词" />
+                    <select aria-label="筛选记录片段" value={transcriptSceneId} onChange={(event) => setTranscriptSceneId(event.target.value)}><option value="all">全部片段</option>{transcript.scenes.map((scene) => <option value={scene.id} key={scene.id}>{scene.title}（{scene.entryCount}）</option>)}</select>
+                    <select aria-label="筛选发言者" value={transcriptSpeaker} onChange={(event) => setTranscriptSpeaker(event.target.value)}><option value="">全部发言者</option>{transcript.speakers.map((speaker) => <option value={speaker.name} key={speaker.name}>{speaker.name}（{speaker.count}）</option>)}</select>
+                    <button onClick={() => transcriptRef.current?.click()}>换一份记录</button>
+                    <button className="remove-transcript" onClick={() => setTranscript(null)}>移除</button>
+                    <input ref={transcriptRef} type="file" accept="text/plain,.log,.txt" onChange={importTranscriptFile} hidden />
+                  </div>
+                  <div className={`transcript-list ${tableSafe ? "masked-transcript" : ""}`}>
+                    {tableSafe ? <div className="transcript-mask"><strong>桌面安全模式</strong><span>跑团记录可能包含秘密，当前已整体遮盖。</span></div> : filteredTranscript.length ? filteredTranscript.map((entry) => <article className={entry.kind} key={entry.id}>
+                      <span>{entry.line}</span><div>{entry.speaker && <b>{entry.speaker}</b>}<p>{entry.text}</p></div><button onClick={() => appendTranscriptEntry(entry)}>加入场景笔记</button>
+                    </article>) : <p className="empty-log">没有符合筛选条件的记录。</p>}
+                  </div>
+                  <div className="transcript-foot"><span>{transcript.sourceName}</span><em>显示 {filteredTranscript.length} 条{transcript.truncated ? " · 超长记录已截取前 5000 条" : ""}</em></div>
+                </>}
+              </section>
+
               <section className="panel intel-panel">
                 <div className="panel-heading battle-heading"><div><span>RELATIONSHIP & INTEL</span><h2>人物关系与情报流向</h2></div><span className="selection-count">共享不连锁</span></div>
                 <div className="relationship-grid">
@@ -1112,17 +1244,42 @@ export default function ShinobigamiConsole() {
             </>
           ) : (
             <section className="panel sheet-panel">
-              <div className="panel-heading battle-heading"><div><span>CHARACTER SHEET</span><h2>角色与特技</h2></div><span className="selection-count">已习得 {selected.skills.length} 项</span></div>
-              <div className="identity-grid">
-                <label>角色名<input value={selected.name} onChange={(event) => updateCharacter(selected.id, { name: event.target.value })} /></label>
-                <label>流派<input value={selected.faction} onChange={(event) => updateCharacter(selected.id, { faction: event.target.value })} /></label>
-                <label>阶级<select value={selected.rank} onChange={(event) => updateCharacter(selected.id, { rank: event.target.value })}><option>下忍</option><option>中忍</option><option>中忍头</option><option>上忍</option><option>上忍头</option><option>头领</option></select></label>
-                <label>类型<select value={selected.role} onChange={(event) => updateCharacter(selected.id, { role: event.target.value as Character["role"] })}><option>PC</option><option>NPC</option></select></label>
+              <div className="panel-heading battle-heading"><div><span>CHARACTER WORKBENCH</span><h2>角色工作台</h2></div><span className="selection-count">{selected.faction} · {selected.rank} · {selected.skills.length} 特技</span></div>
+              <div className="character-dossier">
+                <div className="portrait-column">
+                  <button className={`portrait-frame ${selected.portrait ? "has-image" : ""}`} onClick={() => portraitRef.current?.click()} style={selected.portrait ? { backgroundImage: `url(${selected.portrait})` } : undefined}>
+                    {!selected.portrait && <><span>立绘</span><b>{selected.name.slice(0, 2)}</b><em>选择本地图片</em></>}
+                  </button>
+                  <input ref={portraitRef} type="file" accept="image/*" onChange={importPortrait} hidden />
+                  {selected.portrait && <button className="remove-portrait" onClick={() => updateCharacter(selected.id, { portrait: "" })}>移除立绘</button>}
+                  <div className="dossier-stamp"><span>{selected.role}</span><strong>{selected.belief || "信念未定"}</strong><em>功绩点 {selected.merit ?? 0}</em></div>
+                </div>
+                <div className="identity-grid expanded">
+                  <label className="name-field">角色名<input value={selected.name} onChange={(event) => updateCharacter(selected.id, { name: event.target.value })} /></label>
+                  <label>玩家<input value={selected.player ?? ""} onChange={(event) => updateCharacter(selected.id, { player: event.target.value })} /></label>
+                  <label>流派<input value={selected.faction} onChange={(event) => updateCharacter(selected.id, { faction: event.target.value })} /></label>
+                  <label>阶级<select value={selected.rank} onChange={(event) => updateCharacter(selected.id, { rank: event.target.value })}><option>下忍</option><option>中忍</option><option>中忍头</option><option>上忍</option><option>上忍头</option><option>头领</option></select></label>
+                  <label>年龄<input value={selected.age ?? ""} onChange={(event) => updateCharacter(selected.id, { age: event.target.value })} /></label>
+                  <label>性别<input value={selected.gender ?? ""} onChange={(event) => updateCharacter(selected.id, { gender: event.target.value })} /></label>
+                  <label>表之颜<input value={selected.cover ?? ""} onChange={(event) => updateCharacter(selected.id, { cover: event.target.value })} /></label>
+                  <label>信念<input value={selected.belief ?? ""} onChange={(event) => updateCharacter(selected.id, { belief: event.target.value })} /></label>
+                  <label>仇敌<input value={selected.enemy ?? ""} onChange={(event) => updateCharacter(selected.id, { enemy: event.target.value })} /></label>
+                  <label>功绩点<input type="number" value={selected.merit ?? 0} onChange={(event) => updateCharacter(selected.id, { merit: Number(event.target.value) })} /></label>
+                  <label>类型<select value={selected.role} onChange={(event) => updateCharacter(selected.id, { role: event.target.value as Character["role"] })}><option>PC</option><option>NPC</option></select></label>
+                </div>
               </div>
-              <div className="narrative-grid">
+              <div className="narrative-grid expanded-narrative">
                 <label>使命<textarea value={selected.mission} onChange={(event) => updateCharacter(selected.id, { mission: event.target.value })} /></label>
                 <label className={tableSafe ? "masked-field" : ""}>秘密<textarea value={tableSafe ? "桌面安全模式：秘密已隐藏" : selected.secret} disabled={tableSafe} onChange={(event) => updateCharacter(selected.id, { secret: event.target.value })} /></label>
+                <label>人物故事<textarea value={selected.story ?? ""} onChange={(event) => updateCharacter(selected.id, { story: event.target.value })} placeholder="外表、性格、经历与角色钩子" /></label>
+                <label>背景<textarea value={selected.backgrounds ?? ""} onChange={(event) => updateCharacter(selected.id, { backgrounds: event.target.value })} placeholder="每行一个背景，可写类型与效果摘要" /></label>
+              </div>
+              <div className="ougi-grid">
                 <label>奥义名<input value={selected.ougi} onChange={(event) => updateCharacter(selected.id, { ougi: event.target.value })} /></label>
+                <label>指定特技<input value={selected.ougiSkill ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiSkill: event.target.value })} /></label>
+                <label>效果<input value={selected.ougiEffect ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiEffect: event.target.value })} /></label>
+                <label>强化<input value={selected.ougiStrength ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiStrength: event.target.value })} /></label>
+                <label>弱点<input value={selected.ougiWeakness ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiWeakness: event.target.value })} /></label>
               </div>
               <div className="gap-controls"><span>特技空隙</span>{FIELD_NAMES.slice(0, -1).map((field, index) => <button key={field} className={selected.closedGaps?.[index] ? "closed" : ""} onClick={() => toggleGap(index)}>{field}/{FIELD_NAMES[index + 1]} · {selected.closedGaps?.[index] ? "已填" : "空白"}</button>)}<em>填黑的空隙不计格数</em></div>
               <div className="skill-matrix">
@@ -1133,6 +1290,13 @@ export default function ShinobigamiConsole() {
                 <textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={"粘贴角色卡文本，例如：\n名前：角色名\n流派：鞍马神流\n階級：中忍\n使命：……\n特技：刀術、走法……"} />
                 <div className="import-preview"><span>识别 {importPreview.recognized} 项</span><b>{importPreview.name ?? "未识别姓名"}</b><em>{importPreview.skills.length} 特技 · {importPreview.ninpoIds.length} 忍法</em><button onClick={applyCharacterImport} disabled={!importPreview.recognized}>应用到当前角色</button></div>
               </section>
+              <section className="equipped-ninpo-sheet">
+                <div className="subsection-heading"><div><span>AUTOMATIC NINPO LIST</span><h3>已装备忍法清单</h3></div><small>效果仅保存你的摘要；完整规则仍以所用规则书为准</small></div>
+                <div className="ninpo-table" role="table" aria-label="已装备忍法清单">
+                  <div className="ninpo-table-head" role="row"><span>忍法</span><span>类型</span><span>指定特技</span><span>距离</span><span>花费</span><span>效果摘要</span></div>
+                  {allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id)).map((ninpo) => <div className="ninpo-table-row" role="row" key={ninpo.id}><strong>{ninpo.name}</strong><span>{ninpo.kind}</span><span>{ninpo.skill}</span><span>{ninpo.range >= 99 ? "无" : ninpo.range}</span><span>{ninpo.cost || "无"}</span><p>{ninpo.summary}</p></div>)}
+                </div>
+              </section>
               <section className="ninpo-loadout">
                 <div className="subsection-heading"><div><span>REPEATING LOADOUT</span><h3>忍法配置</h3></div><small>点击添加或移出当前角色</small></div>
                 <div className="ninpo-library">{allNinpo.map((ninpo) => <div className={selected.ninpoIds.includes(ninpo.id) ? "equipped" : ""} key={ninpo.id}><button onClick={() => toggleNinpo(ninpo.id)}><b>{ninpo.name}</b><span>{ninpo.kind} · {ninpo.skill} · 距{ninpo.range} · 费{ninpo.cost}</span></button>{customNinpo.some((item) => item.id === ninpo.id) && <button className="remove-custom" aria-label={`删除自定义忍法 ${ninpo.name}`} onClick={() => deleteCustomNinpo(ninpo.id)}>×</button>}</div>)}</div>
@@ -1142,6 +1306,7 @@ export default function ShinobigamiConsole() {
                   <select aria-label="指定特技" value={customSkill} onChange={(event) => setCustomSkill(event.target.value)}>{FIELD_NAMES.map((field) => <optgroup label={field} key={field}>{SKILL_TABLE[field].map((skill) => <option key={skill}>{skill}</option>)}</optgroup>)}</select>
                   <label>距离<input type="number" min="0" max="99" value={customRange} onChange={(event) => setCustomRange(Number(event.target.value))} /></label>
                   <label>花费<input type="number" min="0" max="99" value={customCost} onChange={(event) => setCustomCost(Number(event.target.value))} /></label>
+                  <input className="custom-summary" aria-label="自定义忍法效果摘要" placeholder="效果摘要（请勿粘贴整段规则书原文）" value={customSummary} onChange={(event) => setCustomSummary(event.target.value)} />
                   <button onClick={addCustomNinpo}>＋ 加入配置</button>
                 </div>
               </section>

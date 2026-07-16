@@ -15,15 +15,22 @@ const tutorialOutput = ts.transpileModule(tutorialSource, {
 }).outputText;
 const tutorialUrl = `data:text/javascript;base64,${Buffer.from(tutorialOutput).toString("base64")}`;
 
+const transcriptSource = await readFile(new URL("../app/lib/transcript.ts", import.meta.url), "utf8");
+const transcriptOutput = ts.transpileModule(transcriptSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const transcriptUrl = `data:text/javascript;base64,${Buffer.from(transcriptOutput).toString("base64")}`;
+
 const sessionSource = (await readFile(new URL("../app/lib/session.ts", import.meta.url), "utf8"))
   .replaceAll('"./rules"', `"${rulesUrl}"`)
-  .replaceAll('"./tutorial"', `"${tutorialUrl}"`);
+  .replaceAll('"./tutorial"', `"${tutorialUrl}"`)
+  .replaceAll('"./transcript"', `"${transcriptUrl}"`);
 const sessionOutput = ts.transpileModule(sessionSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const session = await import(`data:text/javascript;base64,${Buffer.from(sessionOutput).toString("base64")}`);
 
-test("v0.3 save migrates to the v0.5 guided-session schema", () => {
+test("legacy save migrates to the v0.6 workbench schema", () => {
   const migrated = session.normalizeGameState({
     characters: [{
       id: "legacy-pc",
@@ -40,7 +47,7 @@ test("v0.3 save migrates to the v0.5 guided-session schema", () => {
     phase: "主要",
   });
 
-  assert.equal(migrated.schemaVersion, 5);
+  assert.equal(migrated.schemaVersion, 6);
   assert.equal(migrated.selectedId, "legacy-pc");
   assert.equal(migrated.brief.playerCount, 1);
   assert.equal(migrated.handouts.length, 1);
@@ -49,6 +56,9 @@ test("v0.3 save migrates to the v0.5 guided-session schema", () => {
   assert.equal(migrated.tutorial.status, "off");
   assert.deepEqual(migrated.characters[0].closedGaps, [false, false, false, false, false]);
   assert.deepEqual(migrated.characters[0].tools, { 兵粮丸: 0, 神通丸: 1, 遁甲符: 0 });
+  assert.equal(migrated.characters[0].portrait, "");
+  assert.equal(migrated.characters[0].merit, 0);
+  assert.equal(migrated.transcript, null);
 });
 
 test("invalid save is rejected instead of reaching the interface", () => {

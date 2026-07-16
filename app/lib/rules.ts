@@ -188,9 +188,23 @@ export type ParsedCharacterText = {
   name?: string;
   faction?: string;
   rank?: string;
+  player?: string;
+  age?: string;
+  gender?: string;
+  cover?: string;
+  belief?: string;
+  merit?: number;
+  enemy?: string;
+  surface?: string;
+  story?: string;
+  backgrounds?: string;
   mission?: string;
   secret?: string;
   ougi?: string;
+  ougiSkill?: string;
+  ougiEffect?: string;
+  ougiStrength?: string;
+  ougiWeakness?: string;
   skills: string[];
   ninpoIds: string[];
   recognized: number;
@@ -201,15 +215,28 @@ export function parseCharacterText(input: string): ParsedCharacterText {
   const result: ParsedCharacterText = { skills: [], ninpoIds: [], recognized: 0 };
   if (!text) return result;
 
-  const labels: Array<[keyof Pick<ParsedCharacterText, "name" | "faction" | "rank" | "mission" | "secret" | "ougi">, RegExp]> = [
+  const labels: Array<[keyof Pick<ParsedCharacterText, "name" | "faction" | "rank" | "player" | "age" | "gender" | "cover" | "belief" | "enemy" | "surface" | "story" | "backgrounds" | "mission" | "secret" | "ougi" | "ougiSkill" | "ougiEffect" | "ougiStrength" | "ougiWeakness">, RegExp]> = [
     ["name", /^(?:名前|姓名|角色名)\s*[：:]\s*(.*)$/i],
     ["faction", /^(?:流派|所属流派)\s*[：:]\s*(.*)$/i],
     ["rank", /^(?:階級|阶级|等級|等级)\s*[：:]\s*(.*)$/i],
+    ["player", /^(?:玩家|PL|Player)\s*[：:]\s*(.*)$/i],
+    ["age", /^(?:年龄|年齢)\s*[：:]\s*(.*)$/i],
+    ["gender", /^(?:性别|性別)\s*[：:]\s*(.*)$/i],
+    ["cover", /^(?:表之颜|表の顔|表的身份|表身份)\s*[：:]\s*(.*)$/i],
+    ["belief", /^(?:信念)\s*[：:]\s*(.*)$/i],
+    ["enemy", /^(?:仇敌|仇敵)\s*[：:]\s*(.*)$/i],
+    ["surface", /^(?:表之颜|表之顏|表的身份)\s*[：:]\s*(.*)$/i],
+    ["story", /^(?:人物故事|设定|設定|角色故事)\s*[：:]\s*(.*)$/i],
+    ["backgrounds", /^(?:背景|背景清单|背景清單)\s*[：:]\s*(.*)$/i],
     ["mission", /^【?(?:使命)】?\s*[：:]?\s*(.*)$/i],
     ["secret", /^【?(?:秘密)】?\s*[：:]?\s*(.*)$/i],
     ["ougi", /^(?:奥義名|奧義名|奥义名|奥義|奧義|奥义)\s*[：:]\s*(.*)$/i],
+    ["ougiSkill", /^(?:指定特技)\s*[：:]\s*(.*)$/i],
+    ["ougiEffect", /^(?:奥义效果|奧義效果|奥義效果|效果)\s*[：:]\s*(.*)$/i],
+    ["ougiStrength", /^(?:强化|強化|强项|強項)\s*[：:]\s*(.*)$/i],
+    ["ougiWeakness", /^(?:弱点|弱點)\s*[：:]\s*(.*)$/i],
   ];
-  let activeBlock: "mission" | "secret" | null = null;
+  let activeBlock: "mission" | "secret" | "story" | "backgrounds" | null = null;
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -219,7 +246,7 @@ export function parseCharacterText(input: string): ParsedCharacterText {
       if (!hit) continue;
       const value = hit[1]?.trim();
       if (value) result[key] = value;
-      activeBlock = key === "mission" || key === "secret" ? key : null;
+      activeBlock = key === "mission" || key === "secret" || key === "story" || key === "backgrounds" ? key : null;
       matched = true;
       break;
     }
@@ -238,8 +265,11 @@ export function parseCharacterText(input: string): ParsedCharacterText {
   for (const ninpo of COMMON_NINPO) {
     if (text.includes(ninpo.name)) result.ninpoIds.push(ninpo.id);
   }
-  result.recognized = [result.name, result.faction, result.rank, result.mission, result.secret, result.ougi]
+  const merit = text.match(/(?:功绩点|功績點|功績)\s*[：:]\s*(-?\d+)/i);
+  if (merit) result.merit = Number(merit[1]);
+  result.recognized = [result.name, result.faction, result.rank, result.player, result.age, result.gender, result.cover, result.belief, result.enemy, result.story, result.backgrounds, result.mission, result.secret, result.ougi, result.ougiSkill, result.ougiEffect, result.ougiStrength, result.ougiWeakness]
     .filter(Boolean).length + result.skills.length + result.ninpoIds.length;
+  if (result.merit != null) result.recognized += 1;
   return result;
 }
 

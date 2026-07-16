@@ -2,6 +2,8 @@ import { FIELD_NAMES, makeLife, uid } from "./rules";
 import type { BuildRequirements, FieldName, Ninpo } from "./rules";
 import { createIdleTutorialState, normalizeTutorialState } from "./tutorial";
 import type { TutorialState } from "./tutorial";
+import { normalizeTranscriptArchive } from "./transcript";
+import type { TranscriptArchive } from "./transcript";
 
 export type Character = {
   id: string;
@@ -9,6 +11,21 @@ export type Character = {
   role: "PC" | "NPC";
   faction: string;
   rank: string;
+  player?: string;
+  age?: string;
+  gender?: string;
+  cover?: string;
+  belief?: string;
+  merit?: number;
+  enemy?: string;
+  surface?: string;
+  story?: string;
+  backgrounds?: string;
+  portrait?: string;
+  ougiSkill?: string;
+  ougiEffect?: string;
+  ougiStrength?: string;
+  ougiWeakness?: string;
   plot: number | null;
   active: boolean;
   extraLife: number;
@@ -86,7 +103,7 @@ export function advanceResolutionAfterRoll(resolution: Resolution, rollerId: str
 }
 
 export type GameState = {
-  schemaVersion: 5;
+  schemaVersion: 6;
   characters: Character[];
   selectedId: string;
   round: number;
@@ -109,6 +126,7 @@ export type GameState = {
   handouts: Handout[];
   resolution: Resolution | null;
   tutorial: TutorialState;
+  transcript: TranscriptArchive | null;
 };
 
 const DEFAULT_REQUIREMENTS: BuildRequirements = { requiredSkills: 6, requiredNinpoSlots: 4, requiredTools: 2 };
@@ -170,7 +188,7 @@ export function createInitialGameState(): GameState {
   ];
   const brief = createDefaultBrief(1);
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     characters,
     selectedId: characters[0].id,
     round: 1,
@@ -193,6 +211,7 @@ export function createInitialGameState(): GameState {
     handouts: makeDefaultHandouts(characters, brief.playerCount),
     resolution: null,
     tutorial: createIdleTutorialState(),
+    transcript: null,
   };
 }
 
@@ -228,6 +247,21 @@ function normalizeCharacter(value: unknown, index: number): Character {
     role,
     faction: text(raw.faction, "未选择流派"),
     rank: text(raw.rank, "中忍"),
+    player: text(raw.player),
+    age: text(raw.age),
+    gender: text(raw.gender),
+    cover: text(raw.cover),
+    belief: text(raw.belief),
+    merit: number(raw.merit, 0, -999, 999),
+    enemy: text(raw.enemy),
+    surface: text(raw.surface),
+    story: text(raw.story),
+    backgrounds: text(raw.backgrounds),
+    portrait: text(raw.portrait),
+    ougiSkill: text(raw.ougiSkill),
+    ougiEffect: text(raw.ougiEffect),
+    ougiStrength: text(raw.ougiStrength),
+    ougiWeakness: text(raw.ougiWeakness),
     plot: raw.plot == null ? null : number(raw.plot, 1, 1, 6),
     active: raw.active !== false,
     extraLife: number(raw.extraLife, 0, 0, 99),
@@ -320,7 +354,7 @@ export function normalizeGameState(value: unknown): GameState | null {
   const selectedId = ids.has(text(raw.selectedId)) ? text(raw.selectedId) : characters[0].id;
   const firstPcId = pcs[0]?.id ?? characters[0].id;
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     characters,
     selectedId,
     round: number(raw.round, 1, 1, 999),
@@ -347,5 +381,6 @@ export function normalizeGameState(value: unknown): GameState | null {
     handouts,
     resolution,
     tutorial: normalizeTutorialState(raw.tutorial),
+    transcript: normalizeTranscriptArchive(raw.transcript),
   };
 }
