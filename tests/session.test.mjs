@@ -21,16 +21,23 @@ const transcriptOutput = ts.transpileModule(transcriptSource, {
 }).outputText;
 const transcriptUrl = `data:text/javascript;base64,${Buffer.from(transcriptOutput).toString("base64")}`;
 
+const replaySource = await readFile(new URL("../app/lib/replay.ts", import.meta.url), "utf8");
+const replayOutput = ts.transpileModule(replaySource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const replayUrl = `data:text/javascript;base64,${Buffer.from(replayOutput).toString("base64")}`;
+
 const sessionSource = (await readFile(new URL("../app/lib/session.ts", import.meta.url), "utf8"))
   .replaceAll('"./rules"', `"${rulesUrl}"`)
   .replaceAll('"./tutorial"', `"${tutorialUrl}"`)
-  .replaceAll('"./transcript"', `"${transcriptUrl}"`);
+  .replaceAll('"./transcript"', `"${transcriptUrl}"`)
+  .replaceAll('"./replay"', `"${replayUrl}"`);
 const sessionOutput = ts.transpileModule(sessionSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const session = await import(`data:text/javascript;base64,${Buffer.from(sessionOutput).toString("base64")}`);
 
-test("legacy save migrates to the v0.6 workbench schema", () => {
+test("legacy save migrates to the v0.7 replay schema", () => {
   const migrated = session.normalizeGameState({
     characters: [{
       id: "legacy-pc",
@@ -47,7 +54,7 @@ test("legacy save migrates to the v0.6 workbench schema", () => {
     phase: "主要",
   });
 
-  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.schemaVersion, 7);
   assert.equal(migrated.selectedId, "legacy-pc");
   assert.equal(migrated.brief.playerCount, 1);
   assert.equal(migrated.handouts.length, 1);
@@ -59,6 +66,7 @@ test("legacy save migrates to the v0.6 workbench schema", () => {
   assert.equal(migrated.characters[0].portrait, "");
   assert.equal(migrated.characters[0].merit, 0);
   assert.equal(migrated.transcript, null);
+  assert.equal(migrated.replay, null);
 });
 
 test("invalid save is rejected instead of reaching the interface", () => {

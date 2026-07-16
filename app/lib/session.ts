@@ -4,6 +4,8 @@ import { createIdleTutorialState, normalizeTutorialState } from "./tutorial";
 import type { TutorialState } from "./tutorial";
 import { normalizeTranscriptArchive } from "./transcript";
 import type { TranscriptArchive } from "./transcript";
+import { normalizeGeneratedReplay } from "./replay";
+import type { GeneratedReplay } from "./replay";
 
 export type Character = {
   id: string;
@@ -103,7 +105,7 @@ export function advanceResolutionAfterRoll(resolution: Resolution, rollerId: str
 }
 
 export type GameState = {
-  schemaVersion: 6;
+  schemaVersion: 7;
   characters: Character[];
   selectedId: string;
   round: number;
@@ -127,6 +129,7 @@ export type GameState = {
   resolution: Resolution | null;
   tutorial: TutorialState;
   transcript: TranscriptArchive | null;
+  replay: GeneratedReplay | null;
 };
 
 const DEFAULT_REQUIREMENTS: BuildRequirements = { requiredSkills: 6, requiredNinpoSlots: 4, requiredTools: 2 };
@@ -188,7 +191,7 @@ export function createInitialGameState(): GameState {
   ];
   const brief = createDefaultBrief(1);
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     characters,
     selectedId: characters[0].id,
     round: 1,
@@ -212,6 +215,7 @@ export function createInitialGameState(): GameState {
     resolution: null,
     tutorial: createIdleTutorialState(),
     transcript: null,
+    replay: null,
   };
 }
 
@@ -354,7 +358,7 @@ export function normalizeGameState(value: unknown): GameState | null {
   const selectedId = ids.has(text(raw.selectedId)) ? text(raw.selectedId) : characters[0].id;
   const firstPcId = pcs[0]?.id ?? characters[0].id;
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     characters,
     selectedId,
     round: number(raw.round, 1, 1, 999),
@@ -382,5 +386,6 @@ export function normalizeGameState(value: unknown): GameState | null {
     resolution,
     tutorial: normalizeTutorialState(raw.tutorial),
     transcript: normalizeTranscriptArchive(raw.transcript),
+    replay: normalizeGeneratedReplay(raw.replay),
   };
 }

@@ -43,6 +43,8 @@ import { getTutorialStep, RAIN_ZERO_LINE } from "../lib/tutorial";
 import type { TutorialState } from "../lib/tutorial";
 import { parseTranscript } from "../lib/transcript";
 import type { TranscriptArchive, TranscriptEntry } from "../lib/transcript";
+import { generateReplay } from "../lib/replay";
+import type { GeneratedReplay, ReplayEnding, ReplayGenre, ReplayLength } from "../lib/replay";
 import TutorialRunner from "./tutorial/TutorialRunner";
 
 const STORAGE_KEY = "shinobigami-console-v1";
@@ -59,7 +61,7 @@ export default function ShinobigamiConsole() {
   const [revealed, setRevealed] = useState(INITIAL_STATE.revealed);
   const [logs, setLogs] = useState<LogEntry[]>(INITIAL_STATE.logs);
   const [history, setHistory] = useState<GameState[]>([]);
-  const [view, setView] = useState<"tutorial" | "prep" | "battle" | "sheet" | "director">("tutorial");
+  const [view, setView] = useState<"tutorial" | "prep" | "battle" | "sheet" | "replay" | "director">("tutorial");
   const [targetSkill, setTargetSkill] = useState("刀术");
   const [modifier, setModifier] = useState(0);
   const [lastRoll, setLastRoll] = useState<{ dice: number[]; kept: number[]; total: number; result: string } | null>(null);
@@ -92,6 +94,14 @@ export default function ShinobigamiConsole() {
   const [resolution, setResolution] = useState<Resolution | null>(INITIAL_STATE.resolution);
   const [tutorial, setTutorial] = useState<TutorialState>(INITIAL_STATE.tutorial);
   const [transcript, setTranscript] = useState<TranscriptArchive | null>(INITIAL_STATE.transcript);
+  const [replay, setReplay] = useState<GeneratedReplay | null>(INITIAL_STATE.replay);
+  const [replayGenre, setReplayGenre] = useState<ReplayGenre>("都市悬疑");
+  const [replayLength, setReplayLength] = useState<ReplayLength>("标准");
+  const [replayEnding, setReplayEnding] = useState<ReplayEnding>("苦涩胜利");
+  const [replayIntensity, setReplayIntensity] = useState<1 | 2 | 3>(2);
+  const [replaySeed, setReplaySeed] = useState("tsuioku-01");
+  const [replayHeroId, setReplayHeroId] = useState(INITIAL_STATE.characters.find((character) => character.role === "PC")?.id ?? INITIAL_STATE.selectedId);
+  const [replayRevealSecrets, setReplayRevealSecrets] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [transcriptSpeaker, setTranscriptSpeaker] = useState("");
@@ -118,6 +128,19 @@ export default function ShinobigamiConsole() {
   const target = characters.find((character) => character.id === targetId && character.id !== selected?.id && character.active)
     ?? characters.find((character) => character.id !== selected?.id && character.active);
   const allNinpo = useMemo(() => [...COMMON_NINPO, ...customNinpo], [customNinpo]);
+  const replayCast = useMemo(() => characters.map((character) => ({
+    id: character.id,
+    name: character.name,
+    role: character.role,
+    faction: character.faction,
+    mission: character.mission,
+    secret: character.secret,
+    belief: character.belief,
+    story: character.story,
+    ougi: character.ougi,
+    skills: character.skills,
+    ninpoNames: character.ninpoIds.map((id) => allNinpo.find((ninpo) => ninpo.id === id)?.name).filter((name): name is string => Boolean(name)),
+  })), [allNinpo, characters]);
   const requestedNinpo = allNinpo.find((ninpo) => ninpo.id === selectedNinpoId);
   const firstActiveNinpo = allNinpo.find((ninpo) => selected?.ninpoIds.includes(ninpo.id) && ninpo.kind !== "装备");
   const activeNinpoId = selected?.ninpoIds.includes(selectedNinpoId) && requestedNinpo?.kind !== "装备" ? selectedNinpoId : firstActiveNinpo?.id ?? "close";
@@ -235,6 +258,7 @@ export default function ShinobigamiConsole() {
         setResolution(restored.resolution);
         setTutorial(restored.tutorial);
         setTranscript(restored.transcript);
+        setReplay(restored.replay);
       }
       setHydrated(true);
     });
@@ -244,21 +268,21 @@ export default function ShinobigamiConsole() {
     if (!hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      schemaVersion: 6,
+      schemaVersion: 7,
       characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
       cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
-      brief, handouts, resolution, tutorial, transcript,
+      brief, handouts, resolution, tutorial, transcript, replay,
       }));
     } catch {
       // A large portrait or transcript can exceed the browser quota; JSON export remains available as a fallback.
     }
-  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, tutorial, transcript, hydrated]);
+  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, tutorial, transcript, replay, hydrated]);
 
   const currentState = (): GameState => ({
-    schemaVersion: 6,
+    schemaVersion: 7,
     characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
     cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
-    brief, handouts, resolution, tutorial, transcript,
+    brief, handouts, resolution, tutorial, transcript, replay,
   });
   const checkpoint = () => setHistory((items) => [...items.slice(-19), cloneState(currentState())]);
   const addLog = (text: string, tone: LogEntry["tone"] = "action", logCycle = cycle) => {
@@ -294,6 +318,7 @@ export default function ShinobigamiConsole() {
     setResolution(previous.resolution);
     setTutorial(previous.tutorial);
     setTranscript(previous.transcript);
+    setReplay(previous.replay);
     setHistory((items) => items.slice(0, -1));
   };
 
@@ -331,6 +356,7 @@ export default function ShinobigamiConsole() {
     if (emotionToId === selected.id) setEmotionToId(remaining.find((item) => item.id !== remaining[0].id)?.id ?? remaining[0].id);
     if (intelReceiverId === selected.id) setIntelReceiverId(remaining[0].id);
     if (intelSubjectId === selected.id) setIntelSubjectId(remaining.find((item) => item.id !== remaining[0].id)?.id ?? remaining[0].id);
+    if (replayHeroId === selected.id) setReplayHeroId(remaining.find((item) => item.role === "PC")?.id ?? remaining[0].id);
     addLog(`${selected.name} 已从控制台移除。`, "danger");
   };
 
@@ -574,6 +600,53 @@ export default function ShinobigamiConsole() {
     const quote = `${entry.speaker ? `${entry.speaker}：` : ""}${entry.text}`;
     setSceneNote((note) => [note.trim(), quote].filter(Boolean).join("\n"));
     addLog(`已将记录第 ${entry.line} 行加入当前场景笔记。`, "system");
+  };
+
+  const createReplay = (nextSeed = replaySeed) => {
+    const protagonistId = characters.some((character) => character.id === replayHeroId)
+      ? replayHeroId
+      : characters.find((character) => character.role === "PC")?.id ?? characters[0].id;
+    const seed = nextSeed.trim() || "shinobigami";
+    checkpoint();
+    const generated = generateReplay(replayCast, {
+      title: brief.title,
+      genre: replayGenre,
+      length: replayLength,
+      ending: replayEnding,
+      intensity: replayIntensity,
+      seed,
+      protagonistId,
+      revealSecrets: replayRevealSecrets && !tableSafe,
+    });
+    setReplaySeed(seed);
+    setReplayHeroId(protagonistId);
+    setReplay(generated);
+    addLog(`已用种子「${seed}」生成 ${generated.stats.sceneCount} 幕自动 Replay。`, "system");
+  };
+
+  const rerollReplay = () => createReplay(`replay-${Date.now().toString(36).slice(-7)}`);
+
+  const exportReplay = () => {
+    if (!replay) return;
+    const blob = new Blob([replay.text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${replay.title.replace(/[\\/:*?"<>|]/g, "-")}-Replay-${replay.seed}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    addLog(`已导出《${replay.title}》自动 Replay 文本。`, "system");
+  };
+
+  const sendReplayToDesk = () => {
+    if (!replay) return;
+    const archive = parseTranscript(replay.text, `${replay.title} · 自动 Replay`);
+    setTranscript(archive);
+    setTranscriptSceneId("all");
+    setTranscriptSpeaker("");
+    setTranscriptQuery("");
+    setView("director");
+    addLog(`自动 Replay 已送入跑团记录台，可按场景、角色与关键词继续导演。`, "system");
   };
 
   const toggleLife = (field: FieldName) => {
@@ -845,6 +918,7 @@ export default function ShinobigamiConsole() {
         setResolution(parsed.resolution);
         setTutorial(parsed.tutorial);
         setTranscript(parsed.transcript);
+        setReplay(parsed.replay);
       } catch {
         addLog("存档无法读取，请确认文件来自本控制台。", "danger");
       }
@@ -907,6 +981,7 @@ export default function ShinobigamiConsole() {
     setResolution(null);
     setTutorial(next);
     setTranscript(null);
+    setReplay(null);
     setTableSafe(false);
     setLogs([{ id: uid("log"), round: 1, cycle: 1, tone: "system", text: "原创教学忍务《雨夜零号线》已载入。系统将扮演主持人与 NPC。" }]);
     setView("tutorial");
@@ -948,6 +1023,14 @@ export default function ShinobigamiConsole() {
     setResolution(fresh.resolution);
     setTutorial(fresh.tutorial);
     setTranscript(fresh.transcript);
+    setReplay(fresh.replay);
+    setReplayGenre("都市悬疑");
+    setReplayLength("标准");
+    setReplayEnding("苦涩胜利");
+    setReplayIntensity(2);
+    setReplaySeed("tsuioku-01");
+    setReplayHeroId(fresh.characters.find((character) => character.role === "PC")?.id ?? fresh.selectedId);
+    setReplayRevealSecrets(false);
     setTranscriptDraft("");
     setTranscriptQuery("");
     setTranscriptSpeaker("");
@@ -965,7 +1048,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 0.6</span>
+          <span className="version">MVP 0.7</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -978,6 +1061,7 @@ export default function ShinobigamiConsole() {
       <nav className="mode-tabs" aria-label="主要视图">
         <button className={view === "tutorial" ? "active first-mission-tab" : "first-mission-tab"} onClick={() => setView("tutorial")}>第一次忍务</button>
         <button className={view === "prep" ? "active" : ""} onClick={() => setView("prep")}>开团准备</button>
+        <button className={view === "replay" ? "active replay-tab" : "replay-tab"} onClick={() => setView("replay")}>Replay 工房</button>
         <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>战斗控制台</button>
         <button className={view === "director" ? "active" : ""} onClick={() => setView("director")}>场景导演</button>
         <button className={view === "sheet" ? "active" : ""} onClick={() => setView("sheet")}>角色工作台</button>
@@ -1087,6 +1171,59 @@ export default function ShinobigamiConsole() {
                 <div className="readiness-launch"><p>数量提醒允许 GM 按扩展规则确认后继续；秘密、分配与复核缺失会阻止误开团。</p><button onClick={startSession} disabled={Boolean(prepBlockers.length)}>完成检查，进入主要阶段 →</button></div>
               </section>
             </>
+          ) : view === "replay" ? (
+            <div className="replay-workshop">
+              <section className="panel replay-forge-panel">
+                <div className="panel-heading battle-heading">
+                  <div><span>AUTOMATIC REPLAY FORGE</span><h2>自动 Replay 工房</h2></div>
+                  <span className="selection-count">本地生成 · 可复现</span>
+                </div>
+                <div className="replay-hero">
+                  <div>
+                    <span>DRAMATIC ARC</span>
+                    <h3>把当前团务锻造成一条有呼吸的故事线</h3>
+                    <p>引子建立悬念，调查累积压力，中段故意回落，再用秘密反转推向高潮。相同种子与设置会生成相同正文，方便 GM 复盘与改稿。</p>
+                  </div>
+                  <div className="replay-arc-mini" aria-label="示例张力曲线">
+                    {[18, 35, 58, 43, 72, 89, 77, 100, 34].map((value, index) => <i key={index} style={{ height: `${value}%` }} />)}
+                  </div>
+                </div>
+                <div className="replay-config-grid">
+                  <label>主角<select value={replayHeroId} onChange={(event) => setReplayHeroId(event.target.value)}>{characters.filter((character) => character.role === "PC").map((character) => <option key={character.id} value={character.id}>{character.name} · {character.faction}</option>)}</select></label>
+                  <label>故事类型<select value={replayGenre} onChange={(event) => setReplayGenre(event.target.value as ReplayGenre)}>{(["都市悬疑", "学园怪谈", "黑色谍战", "热血决战"] as ReplayGenre[]).map((item) => <option key={item}>{item}</option>)}</select></label>
+                  <label>篇幅<select value={replayLength} onChange={(event) => setReplayLength(event.target.value as ReplayLength)}>{(["短篇", "标准", "长篇"] as ReplayLength[]).map((item) => <option key={item}>{item}</option>)}</select></label>
+                  <label>结局<select value={replayEnding} onChange={(event) => setReplayEnding(event.target.value as ReplayEnding)}>{(["苦涩胜利", "破晓逆转", "开放悬念", "任务失败"] as ReplayEnding[]).map((item) => <option key={item}>{item}</option>)}</select></label>
+                  <label className="replay-seed">固定种子<input value={replaySeed} onChange={(event) => setReplaySeed(event.target.value)} placeholder="例如 tsuioku-01" /></label>
+                  <div className="replay-intensity"><span>戏剧强度</span><div>{([1, 2, 3] as const).map((level) => <button key={level} className={replayIntensity === level ? "active" : ""} onClick={() => setReplayIntensity(level)}>{level === 1 ? "克制" : level === 2 ? "起伏" : "激烈"}</button>)}</div></div>
+                </div>
+                <div className="replay-secret-row">
+                  <label className={tableSafe ? "disabled" : ""}><input type="checkbox" checked={replayRevealSecrets && !tableSafe} disabled={tableSafe} onChange={(event) => setReplayRevealSecrets(event.target.checked)} />允许草稿引用角色秘密</label>
+                  <span>{tableSafe ? "桌面安全模式已锁定：不会写入秘密。" : "关闭时只生成秘密发生了作用的占位叙事。"}</span>
+                  <button className="replay-generate" onClick={() => createReplay()}>生成跌宕 Replay →</button>
+                </div>
+              </section>
+
+              {replay ? <>
+                <section className="panel replay-curve-panel">
+                  <div className="replay-result-heading">
+                    <div><span>TENSION MAP</span><h2>张力曲线</h2><p>低谷不是断线：假胜利让观众喘息，随后用反转抬高风险。</p></div>
+                    <div className="replay-stats"><span><b>{replay.stats.sceneCount}</b> 幕</span><span><b>{replay.stats.lineCount}</b> 行</span><span><b>{replay.stats.rollCount}</b> 次判定</span><span><b>{replay.stats.peakTension}</b> 峰值</span></div>
+                  </div>
+                  <div className="replay-curve" aria-label="Replay 张力曲线">
+                    {replay.scenes.map((scene) => <div key={scene.id} className={scene.beat === "高潮" ? "peak" : ""}><b>{scene.tension}</b><i style={{ height: `${scene.tension}%` }} /><span>{scene.beat}</span></div>)}
+                  </div>
+                  <div className="replay-result-actions"><button onClick={rerollReplay}>换种子重演</button><button onClick={exportReplay}>导出 TXT</button><button className="send-replay" onClick={sendReplayToDesk}>送入跑团记录台 →</button></div>
+                </section>
+
+                <section className="replay-scenes" aria-label="自动生成的 Replay 场景">
+                  {replay.scenes.map((scene) => <article className={`panel replay-scene-card beat-${scene.beat}`} key={scene.id}>
+                    <header><span>{scene.phase} · {scene.beat}</span><h3>{String(scene.index).padStart(2, "0")} / {scene.title}</h3><div><b>{scene.tension}</b><small>TENSION</small></div></header>
+                    <div className="replay-lines">{scene.lines.map((line) => <p className={line.kind} key={line.id}><strong>{line.speaker}</strong><span>{tableSafe && line.kind === "reveal" ? "桌面安全模式：秘密揭示已隐藏。" : line.text}</span></p>)}</div>
+                  </article>)}
+                </section>
+                <p className="replay-disclaimer">自动判定只服务于戏剧化草稿，不替代实团掷骰、规则效果或 GM 裁定。生成与导出均在当前设备完成。</p>
+              </> : <section className="panel replay-empty"><span>01</span><div><strong>先选择主角与故事方向</strong><p>生成器会读取角色名、流派、使命、信念、特技、忍法与奥义；只有主动允许时才会引用秘密。</p></div><span>09</span></section>}
+            </div>
           ) : view === "battle" ? (
             <>
               <section className="panel plot-panel">
