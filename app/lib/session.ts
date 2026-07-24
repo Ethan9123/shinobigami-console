@@ -1,5 +1,5 @@
 import { FIELD_NAMES, makeLife, uid } from "./rules";
-import type { BuildRequirements, FieldName, Ninpo } from "./rules";
+import type { BackgroundItem, BuildRequirements, FieldName, Ninpo } from "./rules";
 import { createIdleTutorialState, normalizeTutorialState } from "./tutorial";
 import type { TutorialState } from "./tutorial";
 import { normalizeTranscriptArchive } from "./transcript";
@@ -12,6 +12,9 @@ export type Character = {
   name: string;
   role: "PC" | "NPC";
   faction: string;
+  subFaction?: string;
+  condition?: string;
+  style?: string;
   rank: string;
   player?: string;
   age?: string;
@@ -23,6 +26,7 @@ export type Character = {
   surface?: string;
   story?: string;
   backgrounds?: string;
+  backgroundItems: BackgroundItem[];
   portrait?: string;
   ougiSkill?: string;
   ougiEffect?: string;
@@ -46,6 +50,7 @@ export type Character = {
 };
 
 export type Emotion = { id: string; fromId: string; toId: string; label: string; positive: boolean; used: boolean };
+export type Treasure = { id: string; name: string; holderId: string; note: string };
 export type IntelKind = "秘密" | "居所" | "奥义";
 export type IntelRecord = { subjectId: string; kind: IntelKind; knownBy: string[] };
 export type SceneAction = "未定" | "回复判定" | "情报判定" | "感情判定" | "战斗" | "计划判定" | "辅助判定";
@@ -105,7 +110,7 @@ export function advanceResolutionAfterRoll(resolution: Resolution, rollerId: str
 }
 
 export type GameState = {
-  schemaVersion: 7;
+  schemaVersion: 8;
   characters: Character[];
   selectedId: string;
   round: number;
@@ -124,6 +129,7 @@ export type GameState = {
   intel: IntelRecord[];
   cues: SceneCue[];
   trackers: Tracker[];
+  treasures: Treasure[];
   brief: SessionBrief;
   handouts: Handout[];
   resolution: Resolution | null;
@@ -175,14 +181,14 @@ export function makeDefaultHandouts(characters: Character[], playerCount = chara
 export function createInitialGameState(): GameState {
   const characters: Character[] = [
     {
-      id: "pc-tsukikage", name: "月影", role: "PC", faction: "鞍马神流", rank: "中忍", plot: null, active: true,
+      id: "pc-tsukikage", name: "月影", role: "PC", faction: "鞍马神流", rank: "中忍", backgroundItems: [], plot: null, active: true,
       extraLife: 0, life: makeLife(), skills: ["刀术", "走法", "见敌术", "潜伏术", "意气", "第六感"],
       ninpoIds: ["close", "cross", "emotion", "shoot", "kamaitachi"], conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "守住目标，并查明敌人的秘密。", secret: "尚未公开的个人秘密。", ougi: "月下无影", closedGaps: [false, true, false, false, false], acted: false,
       tools: { 兵粮丸: 0, 神通丸: 1, 遁甲符: 1 },
     },
     {
-      id: "npc-kirikage", name: "雾隐", role: "NPC", faction: "隐忍血统", rank: "中忍", plot: null, active: true,
+      id: "npc-kirikage", name: "雾隐", role: "NPC", faction: "隐忍血统", rank: "中忍", backgroundItems: [], plot: null, active: true,
       extraLife: 0, life: makeLife(), skills: ["毒术", "潜伏术", "咒术", "异形化", "身体操术", "调查术"],
       ninpoIds: ["close", "poison", "shoot", "blast", "kamaitachi"], conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "击败妨碍计划的忍者。", secret: "真正的目的仍被迷雾掩盖。", ougi: "百毒夜行", closedGaps: [false, false, false, false, true], acted: false,
@@ -191,7 +197,7 @@ export function createInitialGameState(): GameState {
   ];
   const brief = createDefaultBrief(1);
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     characters,
     selectedId: characters[0].id,
     round: 1,
@@ -210,6 +216,7 @@ export function createInitialGameState(): GameState {
     intel: [],
     cues: [],
     trackers: [{ id: "tracker-clue", name: "线索进度", value: 0, max: 6 }],
+    treasures: [],
     brief,
     handouts: makeDefaultHandouts(characters, brief.playerCount),
     resolution: null,
@@ -236,6 +243,23 @@ function stringList(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function normalizeBackgroundItems(value: unknown): BackgroundItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index): BackgroundItem[] => {
+    const item = record(entry);
+    const name = text(item.name);
+    if (!name) return [];
+    return [{
+      id: text(item.id) || `bg-${index + 1}`,
+      serial: text(item.serial),
+      name,
+      category: text(item.category),
+      points: number(item.points, 0, -999, 999),
+      effect: text(item.effect),
+    }];
+  });
+}
+
 function normalizeCharacter(value: unknown, index: number): Character {
   const raw = record(value);
   const lifeRaw = record(raw.life);
@@ -250,6 +274,9 @@ function normalizeCharacter(value: unknown, index: number): Character {
     name: text(raw.name, `${role} ${index + 1}`),
     role,
     faction: text(raw.faction, "未选择流派"),
+    subFaction: text(raw.subFaction),
+    condition: text(raw.condition),
+    style: text(raw.style),
     rank: text(raw.rank, "中忍"),
     player: text(raw.player),
     age: text(raw.age),
@@ -261,6 +288,7 @@ function normalizeCharacter(value: unknown, index: number): Character {
     surface: text(raw.surface),
     story: text(raw.story),
     backgrounds: text(raw.backgrounds),
+    backgroundItems: normalizeBackgroundItems(raw.backgroundItems),
     portrait: text(raw.portrait),
     ougiSkill: text(raw.ougiSkill),
     ougiEffect: text(raw.ougiEffect),
@@ -358,7 +386,7 @@ export function normalizeGameState(value: unknown): GameState | null {
   const selectedId = ids.has(text(raw.selectedId)) ? text(raw.selectedId) : characters[0].id;
   const firstPcId = pcs[0]?.id ?? characters[0].id;
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     characters,
     selectedId,
     round: number(raw.round, 1, 1, 999),
@@ -381,6 +409,20 @@ export function normalizeGameState(value: unknown): GameState | null {
     intel: Array.isArray(raw.intel) ? raw.intel as IntelRecord[] : [],
     cues: Array.isArray(raw.cues) ? raw.cues as SceneCue[] : [],
     trackers: Array.isArray(raw.trackers) && raw.trackers.length ? raw.trackers as Tracker[] : [{ id: "tracker-clue", name: "线索进度", value: 0, max: 6 }],
+    treasures: Array.isArray(raw.treasures)
+      ? raw.treasures.flatMap((value, index): Treasure[] => {
+        const item = record(value);
+        const name = text(item.name);
+        if (!name) return [];
+        const holderId = text(item.holderId);
+        return [{
+          id: text(item.id) || `treasure-${index + 1}`,
+          name,
+          holderId: ids.has(holderId) ? holderId : "",
+          note: text(item.note),
+        }];
+      })
+      : [],
     brief,
     handouts,
     resolution,

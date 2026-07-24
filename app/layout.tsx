@@ -7,19 +7,19 @@ export async function generateMetadata(): Promise<Metadata> {
   const incoming = await headers();
   const host = incoming.get("x-forwarded-host") ?? incoming.get("host") ?? "localhost:3000";
   const protocol = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og-replay-v07.png`;
+  const imageUrl = `${protocol}://${host}/og.png`;
 
   return {
     title: "忍神控制台",
-    description: "本地优先的《忍神》团务辅助工具：自动 Replay、张力曲线、角色工作台、场景导演与逐步战斗结算。",
+    description: "本地优先的《忍神》团务辅助工具：熟练 GM 导演席、自动 Replay、场景节拍、失败推进，以及 BCDice、CCFOLIA 与 Foundry VTT 互通。",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "忍神控制台",
-      description: "自动 Replay 工房 · 张力曲线 · 场景导演",
+      description: "熟练 GM 导演席 · 自动 Replay · 失败也前进",
       type: "website",
-      images: [{ url: imageUrl, width: 1727, height: 911, alt: "忍神控制台：自动 Replay 工房、张力曲线与场景导演" }],
+      images: [{ url: imageUrl, width: 1729, height: 910, alt: "忍神控制台：熟练 GM 导演席与自动 Replay 工房" }],
     },
-    twitter: { card: "summary_large_image", title: "忍神控制台", description: "自动 Replay 工房 · 张力曲线 · 场景导演", images: [imageUrl] },
+    twitter: { card: "summary_large_image", title: "忍神控制台", description: "熟练 GM 导演席 · 自动 Replay · 失败也前进", images: [imageUrl] },
   };
 }
 

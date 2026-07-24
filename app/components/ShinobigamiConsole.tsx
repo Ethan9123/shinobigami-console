@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BackgroundItem,
   calculateCheckOdds,
   COMMON_NINPO,
   CONDITIONS,
@@ -38,13 +39,17 @@ import type {
   SceneAction,
   SceneCue,
   SessionBrief,
+  Treasure,
 } from "../lib/session";
 import { getTutorialStep, RAIN_ZERO_LINE } from "../lib/tutorial";
 import type { TutorialState } from "../lib/tutorial";
 import { parseTranscript } from "../lib/transcript";
 import type { TranscriptArchive, TranscriptEntry } from "../lib/transcript";
 import { generateReplay } from "../lib/replay";
-import type { GeneratedReplay, ReplayEnding, ReplayGenre, ReplayLength } from "../lib/replay";
+import type { GeneratedReplay, ReplayEnding, ReplayGenre, ReplayLength, ReplayMode } from "../lib/replay";
+import { createBCDicePalette, createCCFoliaCharacter, createFoundryActor, serializeInterop } from "../lib/interop";
+import { composeGmNote, createGmBrief, GM_BEATS } from "../lib/gm";
+import type { GmBeat, GmPressure } from "../lib/gm";
 import TutorialRunner from "./tutorial/TutorialRunner";
 
 const STORAGE_KEY = "shinobigami-console-v1";
@@ -79,6 +84,7 @@ export default function ShinobigamiConsole() {
   const [customCost, setCustomCost] = useState(0);
   const [customKind, setCustomKind] = useState<Ninpo["kind"]>("攻击");
   const [customSummary, setCustomSummary] = useState("");
+  const [customNote, setCustomNote] = useState("");
   const [cycle, setCycle] = useState(1);
   const [sceneNumber, setSceneNumber] = useState(1);
   const [sceneOwnerId, setSceneOwnerId] = useState(INITIAL_STATE.sceneOwnerId);
@@ -89,12 +95,17 @@ export default function ShinobigamiConsole() {
   const [intel, setIntel] = useState<IntelRecord[]>([]);
   const [cues, setCues] = useState<SceneCue[]>([]);
   const [trackers, setTrackers] = useState(INITIAL_STATE.trackers);
+  const [treasures, setTreasures] = useState<Treasure[]>(INITIAL_STATE.treasures);
+  const [treasureName, setTreasureName] = useState("");
+  const [treasureNote, setTreasureNote] = useState("");
+  const [treasureTargets, setTreasureTargets] = useState<Record<string, string>>({});
   const [brief, setBrief] = useState<SessionBrief>(INITIAL_STATE.brief);
   const [handouts, setHandouts] = useState<Handout[]>(INITIAL_STATE.handouts);
   const [resolution, setResolution] = useState<Resolution | null>(INITIAL_STATE.resolution);
   const [tutorial, setTutorial] = useState<TutorialState>(INITIAL_STATE.tutorial);
   const [transcript, setTranscript] = useState<TranscriptArchive | null>(INITIAL_STATE.transcript);
   const [replay, setReplay] = useState<GeneratedReplay | null>(INITIAL_STATE.replay);
+  const [replayMode, setReplayMode] = useState<ReplayMode>("戏剧节拍");
   const [replayGenre, setReplayGenre] = useState<ReplayGenre>("都市悬疑");
   const [replayLength, setReplayLength] = useState<ReplayLength>("标准");
   const [replayEnding, setReplayEnding] = useState<ReplayEnding>("苦涩胜利");
@@ -102,6 +113,9 @@ export default function ShinobigamiConsole() {
   const [replaySeed, setReplaySeed] = useState("tsuioku-01");
   const [replayHeroId, setReplayHeroId] = useState(INITIAL_STATE.characters.find((character) => character.role === "PC")?.id ?? INITIAL_STATE.selectedId);
   const [replayRevealSecrets, setReplayRevealSecrets] = useState(false);
+  const [interopPrivate, setInteropPrivate] = useState(false);
+  const [gmBeat, setGmBeat] = useState<GmBeat>("定调");
+  const [gmPressure, setGmPressure] = useState<GmPressure>(1);
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [transcriptSpeaker, setTranscriptSpeaker] = useState("");
@@ -153,10 +167,7 @@ export default function ShinobigamiConsole() {
     }),
     [selected],
   );
-  const check = useMemo(
-    () => nearestSkill(availableSkills, targetSkill, selected?.closedGaps ?? []),
-    [availableSkills, targetSkill, selected?.closedGaps],
-  );
+  const check = nearestSkill(availableSkills, targetSkill, selected?.closedGaps ?? []);
   const battleOrder = useMemo(
     () => characters.filter((character) => character.active).sort((a, b) => (b.plot ?? -1) - (a.plot ?? -1)),
     [characters],
@@ -181,6 +192,22 @@ export default function ShinobigamiConsole() {
     () => cues.filter((cue) => !cue.done && (cue.cycle < cycle || (cue.cycle === cycle && cue.scene <= sceneNumber))),
     [cues, cycle, sceneNumber],
   );
+  const gmBrief = createGmBrief({
+    title: brief.title,
+    cycle,
+    sceneNumber,
+    sceneOwnerId,
+    sceneParticipantIds,
+    sceneAction,
+    characters,
+    emotions,
+    intel,
+    trackers,
+    cues,
+    beat: gmBeat,
+    pressure: gmPressure,
+    tableSafe,
+  });
   const preflightIssues = useMemo(
     () => evaluateSessionReadiness(characters, handouts, brief.playerCount, brief.requirements),
     [brief, characters, handouts],
@@ -253,6 +280,7 @@ export default function ShinobigamiConsole() {
         setIntel(restored.intel);
         setCues(restored.cues);
         setTrackers(restored.trackers);
+        setTreasures(restored.treasures);
         setBrief(restored.brief);
         setHandouts(restored.handouts);
         setResolution(restored.resolution);
@@ -268,20 +296,20 @@ export default function ShinobigamiConsole() {
     if (!hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      schemaVersion: 7,
+      schemaVersion: 8,
       characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
-      cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
+      cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, treasures,
       brief, handouts, resolution, tutorial, transcript, replay,
       }));
     } catch {
       // A large portrait or transcript can exceed the browser quota; JSON export remains available as a fallback.
     }
-  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, brief, handouts, resolution, tutorial, transcript, replay, hydrated]);
+  }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, treasures, brief, handouts, resolution, tutorial, transcript, replay, hydrated]);
 
   const currentState = (): GameState => ({
-    schemaVersion: 7,
+    schemaVersion: 8,
     characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
-    cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers,
+    cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, treasures,
     brief, handouts, resolution, tutorial, transcript, replay,
   });
   const checkpoint = () => setHistory((items) => [...items.slice(-19), cloneState(currentState())]);
@@ -313,6 +341,7 @@ export default function ShinobigamiConsole() {
     setIntel(previous.intel);
     setCues(previous.cues);
     setTrackers(previous.trackers);
+    setTreasures(previous.treasures);
     setBrief(previous.brief);
     setHandouts(previous.handouts);
     setResolution(previous.resolution);
@@ -331,7 +360,8 @@ export default function ShinobigamiConsole() {
       role, faction: "未选择流派", rank: "中忍", plot: null, active: true, extraLife: 0, life: makeLife(),
       skills: ["刀术"], ninpoIds: ["close", "shoot"], conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "", secret: "", ougi: "", closedGaps: [false, false, false, false, false], acted: false,
-      player: "", age: "", gender: "", cover: "", belief: "", merit: 0, enemy: "", surface: "", story: "", backgrounds: "", portrait: "",
+      player: "", age: "", gender: "", cover: "", belief: "", merit: 0, enemy: "", surface: "", story: "", backgrounds: "", backgroundItems: [], portrait: "",
+      subFaction: "", condition: "", style: "",
       ougiSkill: "", ougiEffect: "", ougiStrength: "", ougiWeakness: "",
       tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 0 },
     };
@@ -349,6 +379,7 @@ export default function ShinobigamiConsole() {
     setEmotions((items) => items.filter((emotion) => emotion.fromId !== selected.id && emotion.toId !== selected.id));
     setIntel((items) => items.filter((record) => record.subjectId !== selected.id).map((record) => ({ ...record, knownBy: record.knownBy.filter((id) => id !== selected.id) })));
     setHandouts((items) => items.map((handout) => handout.assignedCharacterId === selected.id ? { ...handout, assignedCharacterId: "", reviewed: false } : handout));
+    setTreasures((items) => items.map((treasure) => treasure.holderId === selected.id ? { ...treasure, holderId: "" } : treasure));
     if (resolution?.actorId === selected.id || resolution?.targetId === selected.id) setResolution(null);
     setSceneParticipantIds((items) => items.filter((id) => id !== selected.id));
     if (sceneOwnerId === selected.id) setSceneOwnerId(remaining[0].id);
@@ -416,11 +447,40 @@ export default function ShinobigamiConsole() {
     checkpoint();
     setPhase("主要");
     setView("director");
+    setGmBeat("定调");
+    setGmPressure(1);
     addLog(`《${brief.title}》开团检查完成，进入主要阶段。`, "system");
   };
 
   const toggleSceneParticipant = (id: string) => {
     setSceneParticipantIds((items) => items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
+  };
+
+  const appendGmDirection = (kind: "opening" | "question" | "failure" | "aftermath") => {
+    checkpoint();
+    const direction = composeGmNote(gmBrief, kind);
+    setSceneNote((current) => [current.trim(), direction].filter(Boolean).join("\n"));
+    addLog(kind === "failure" ? "GM 已记录一个“失败也前进”的剧情代价；不会自动改写判定结果。" : "GM 导演提示已加入当前场景笔记。", kind === "failure" ? "danger" : "system");
+  };
+
+  const acceptSuggestedAction = () => {
+    checkpoint();
+    setSceneAction(gmBrief.suggestedAction);
+    addLog(`GM 建议本场以${gmBrief.suggestedAction}聚焦；最终行动仍由场景玩家决定。`, "system");
+  };
+
+  const acceptGmSpotlight = () => {
+    if (!gmBrief.spotlight.id) return;
+    checkpoint();
+    setSceneOwnerId(gmBrief.spotlight.id);
+    setSelectedId(gmBrief.spotlight.id);
+    setSceneParticipantIds((items) => items.includes(gmBrief.spotlight.id) ? items : [...items, gmBrief.spotlight.id]);
+    addLog(`聚光灯交给 ${gmBrief.spotlight.name}；请先询问玩家想让这一幕发生什么。`, "system");
+  };
+
+  const advanceGmBeat = () => {
+    const index = GM_BEATS.indexOf(gmBeat);
+    setGmBeat(GM_BEATS[Math.min(GM_BEATS.length - 1, index + 1)]);
   };
 
   const completeScene = () => {
@@ -439,6 +499,8 @@ export default function ShinobigamiConsole() {
     setSceneParticipantIds([nextOwner.id]);
     setSceneAction("未定");
     setSceneNote("");
+    setGmBeat("定调");
+    setGmPressure((value) => Math.max(0, value - 1) as GmPressure);
   };
 
   const newCycle = () => {
@@ -451,6 +513,8 @@ export default function ShinobigamiConsole() {
     setSceneParticipantIds([firstPc.id]);
     setSceneAction("未定");
     setSceneNote("");
+    setGmBeat("定调");
+    setGmPressure(1);
     setCharacters((items) => items.map((character) => ({ ...character, acted: false })));
     setEmotions((items) => items.map((emotion) => ({ ...emotion, used: false })));
     addLog(`进入第 ${nextCycle} 巡，所有 PC 恢复未行动状态。`, "system", nextCycle);
@@ -516,12 +580,64 @@ export default function ShinobigamiConsole() {
     setTrackerName("");
   };
 
+  const addTreasure = () => {
+    const name = treasureName.trim();
+    if (!name) return;
+    checkpoint();
+    setTreasures((items) => [...items, { id: uid("treasure"), name, holderId: characters[0]?.id ?? "", note: treasureNote.trim() }]);
+    setTreasureName("");
+    setTreasureNote("");
+    addLog(`秘宝〈${name}〉已登记，当前由 ${characters[0]?.name ?? "无人"} 持有。`, "system");
+  };
+
+  const removeTreasure = (treasureId: string) => {
+    const treasure = treasures.find((item) => item.id === treasureId);
+    if (!treasure) return;
+    checkpoint();
+    setTreasures((items) => items.filter((item) => item.id !== treasureId));
+    addLog(`秘宝〈${treasure.name}〉已从桌面移除。`, "system");
+  };
+
+  const transferTreasure = (treasureId: string, targetId: string) => {
+    const treasure = treasures.find((item) => item.id === treasureId);
+    const nextHolder = characters.find((character) => character.id === targetId);
+    if (!treasure || !nextHolder || treasure.holderId === nextHolder.id) return;
+    checkpoint();
+    setTreasures((items) => items.map((item) => item.id === treasureId ? { ...item, holderId: nextHolder.id } : item));
+    const fromName = characters.find((character) => character.id === treasure.holderId)?.name ?? "无人";
+    addLog(`秘宝〈${treasure.name}〉由 ${fromName} 让渡给 ${nextHolder.name}。`, "action");
+  };
+
+  const addBackgroundItem = () => {
+    if (!selected) return;
+    checkpoint();
+    updateCharacter(selected.id, {
+      backgroundItems: [...selected.backgroundItems, { id: uid("bg"), serial: "", name: "新背景", category: "", points: 0, effect: "" }],
+    });
+  };
+
+  const updateBackgroundItem = (itemId: string, patch: Partial<BackgroundItem>) => {
+    if (!selected) return;
+    updateCharacter(selected.id, {
+      backgroundItems: selected.backgroundItems.map((item) => item.id === itemId ? { ...item, ...patch } : item),
+    });
+  };
+
+  const removeBackgroundItem = (itemId: string) => {
+    if (!selected) return;
+    checkpoint();
+    updateCharacter(selected.id, { backgroundItems: selected.backgroundItems.filter((item) => item.id !== itemId) });
+  };
+
   const applyCharacterImport = () => {
     if (!selected || !importPreview.recognized) return;
     checkpoint();
     updateCharacter(selected.id, {
       name: importPreview.name ?? selected.name,
       faction: importPreview.faction ?? selected.faction,
+      subFaction: importPreview.subFaction ?? selected.subFaction,
+      condition: importPreview.condition ?? selected.condition,
+      style: importPreview.style ?? selected.style,
       rank: importPreview.rank ?? selected.rank,
       player: importPreview.player ?? selected.player,
       age: importPreview.age ?? selected.age,
@@ -533,6 +649,7 @@ export default function ShinobigamiConsole() {
       surface: importPreview.surface ?? selected.surface,
       story: importPreview.story ?? selected.story,
       backgrounds: importPreview.backgrounds ?? selected.backgrounds,
+      backgroundItems: importPreview.backgroundItems.length ? importPreview.backgroundItems : selected.backgroundItems,
       mission: importPreview.mission ?? selected.mission,
       secret: importPreview.secret ?? selected.secret,
       ougi: importPreview.ougi ?? selected.ougi,
@@ -617,11 +734,12 @@ export default function ShinobigamiConsole() {
       seed,
       protagonistId,
       revealSecrets: replayRevealSecrets && !tableSafe,
+      mode: replayMode,
     });
     setReplaySeed(seed);
     setReplayHeroId(protagonistId);
     setReplay(generated);
-    addLog(`已用种子「${seed}」生成 ${generated.stats.sceneCount} 幕自动 Replay。`, "system");
+    addLog(`已用种子「${seed}」以「${replayMode}」模式生成 ${generated.stats.sceneCount} 幕自动 Replay。`, "system");
   };
 
   const rerollReplay = () => createReplay(`replay-${Date.now().toString(36).slice(-7)}`);
@@ -647,6 +765,36 @@ export default function ShinobigamiConsole() {
     setTranscriptQuery("");
     setView("director");
     addLog(`自动 Replay 已送入跑团记录台，可按场景、角色与关键词继续导演。`, "system");
+  };
+
+  const copyInteropText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      addLog(`${selected.name} 的${label}已复制到剪贴板。`, "system");
+    } catch {
+      addLog(`无法写入剪贴板；请确认页面使用 HTTPS，并允许浏览器访问剪贴板。`, "danger");
+    }
+  };
+
+  const copyBCDicePalette = () => {
+    void copyInteropText(createBCDicePalette(selected, allNinpo), " BCDice 命令调色板");
+  };
+
+  const copyCCFoliaCharacter = () => {
+    const data = createCCFoliaCharacter(selected, allNinpo, { includePrivate: interopPrivate && !tableSafe });
+    void copyInteropText(serializeInterop(data), " CCFOLIA 角色数据");
+  };
+
+  const downloadFoundryActor = () => {
+    const data = createFoundryActor(selected, allNinpo, { includePrivate: interopPrivate && !tableSafe });
+    const blob = new Blob([serializeInterop(data)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${selected.name.replace(/[\\/:*?"<>|]/g, "-")}-FoundryVTT-Actor.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    addLog(`${selected.name} 的 Foundry VTT Actor JSON 已导出。`, "system");
   };
 
   const toggleLife = (field: FieldName) => {
@@ -858,11 +1006,13 @@ export default function ShinobigamiConsole() {
       range: customRange,
       cost: customCost,
       summary: customSummary.trim() || "玩家自定义忍法；具体效果由 GM 裁定。",
+      note: customNote.trim() || undefined,
     };
     setCustomNinpo((items) => [...items, ninpo]);
     updateCharacter(selected.id, { ninpoIds: [...selected.ninpoIds, ninpo.id] });
     setCustomName("");
     setCustomSummary("");
+    setCustomNote("");
     addLog(`${selected.name} 配置了自定义忍法【${name}】。`, "system");
   };
 
@@ -913,12 +1063,15 @@ export default function ShinobigamiConsole() {
         setIntel(parsed.intel);
         setCues(parsed.cues);
         setTrackers(parsed.trackers);
+        setTreasures(parsed.treasures);
         setBrief(parsed.brief);
         setHandouts(parsed.handouts);
         setResolution(parsed.resolution);
         setTutorial(parsed.tutorial);
         setTranscript(parsed.transcript);
         setReplay(parsed.replay);
+        setGmBeat("定调");
+        setGmPressure(1);
       } catch {
         addLog("存档无法读取，请确认文件来自本控制台。", "danger");
       }
@@ -976,6 +1129,7 @@ export default function ShinobigamiConsole() {
       { id: "rain-zero-cue-ending", title: "公开白狐匣的最后真相", cycle: 2, scene: 3, done: false },
     ]);
     setTrackers([{ id: "rain-zero-terminal", name: "距离终点", value: 0, max: 3 }]);
+    setTreasures([]);
     setBrief(tutorialBrief);
     setHandouts(tutorialHandouts);
     setResolution(null);
@@ -983,6 +1137,8 @@ export default function ShinobigamiConsole() {
     setTranscript(null);
     setReplay(null);
     setTableSafe(false);
+    setGmBeat("定调");
+    setGmPressure(1);
     setLogs([{ id: uid("log"), round: 1, cycle: 1, tone: "system", text: "原创教学忍务《雨夜零号线》已载入。系统将扮演主持人与 NPC。" }]);
     setView("tutorial");
     setLastRoll(null);
@@ -1018,12 +1174,17 @@ export default function ShinobigamiConsole() {
     setIntel(fresh.intel);
     setCues(fresh.cues);
     setTrackers(fresh.trackers);
+    setTreasures(fresh.treasures);
+    setTreasureName("");
+    setTreasureNote("");
+    setTreasureTargets({});
     setBrief(fresh.brief);
     setHandouts(fresh.handouts);
     setResolution(fresh.resolution);
     setTutorial(fresh.tutorial);
     setTranscript(fresh.transcript);
     setReplay(fresh.replay);
+    setReplayMode("戏剧节拍");
     setReplayGenre("都市悬疑");
     setReplayLength("标准");
     setReplayEnding("苦涩胜利");
@@ -1031,6 +1192,9 @@ export default function ShinobigamiConsole() {
     setReplaySeed("tsuioku-01");
     setReplayHeroId(fresh.characters.find((character) => character.role === "PC")?.id ?? fresh.selectedId);
     setReplayRevealSecrets(false);
+    setInteropPrivate(false);
+    setGmBeat("定调");
+    setGmPressure(1);
     setTranscriptDraft("");
     setTranscriptQuery("");
     setTranscriptSpeaker("");
@@ -1048,7 +1212,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 0.7</span>
+          <span className="version">MVP 1.0</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1189,6 +1353,7 @@ export default function ShinobigamiConsole() {
                   </div>
                 </div>
                 <div className="replay-config-grid">
+                  <label>生成模式<select value={replayMode} onChange={(event) => setReplayMode(event.target.value as ReplayMode)}>{(["戏剧节拍", "实战巡回"] as ReplayMode[]).map((item) => <option key={item}>{item}</option>)}</select></label>
                   <label>主角<select value={replayHeroId} onChange={(event) => setReplayHeroId(event.target.value)}>{characters.filter((character) => character.role === "PC").map((character) => <option key={character.id} value={character.id}>{character.name} · {character.faction}</option>)}</select></label>
                   <label>故事类型<select value={replayGenre} onChange={(event) => setReplayGenre(event.target.value as ReplayGenre)}>{(["都市悬疑", "学园怪谈", "黑色谍战", "热血决战"] as ReplayGenre[]).map((item) => <option key={item}>{item}</option>)}</select></label>
                   <label>篇幅<select value={replayLength} onChange={(event) => setReplayLength(event.target.value as ReplayLength)}>{(["短篇", "标准", "长篇"] as ReplayLength[]).map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -1207,17 +1372,17 @@ export default function ShinobigamiConsole() {
                 <section className="panel replay-curve-panel">
                   <div className="replay-result-heading">
                     <div><span>TENSION MAP</span><h2>张力曲线</h2><p>低谷不是断线：假胜利让观众喘息，随后用反转抬高风险。</p></div>
-                    <div className="replay-stats"><span><b>{replay.stats.sceneCount}</b> 幕</span><span><b>{replay.stats.lineCount}</b> 行</span><span><b>{replay.stats.rollCount}</b> 次判定</span><span><b>{replay.stats.peakTension}</b> 峰值</span></div>
+                    <div className="replay-stats"><span><b>{replay.stats.sceneCount}</b> 幕</span>{replay.stats.cycleCount ? <span><b>{replay.stats.cycleCount}</b> 循环</span> : null}<span><b>{replay.stats.lineCount}</b> 行</span><span><b>{replay.stats.rollCount}</b> 次判定</span><span><b>{replay.stats.peakTension}</b> 峰值</span></div>
                   </div>
                   <div className="replay-curve" aria-label="Replay 张力曲线">
-                    {replay.scenes.map((scene) => <div key={scene.id} className={scene.beat === "高潮" ? "peak" : ""}><b>{scene.tension}</b><i style={{ height: `${scene.tension}%` }} /><span>{scene.beat}</span></div>)}
+                    {replay.scenes.map((scene) => <div key={scene.id} className={scene.beat === "高潮" ? "peak" : ""}><b>{scene.tension}</b><i style={{ height: `${scene.tension}%` }} /><span>{scene.sceneType ?? scene.beat}</span></div>)}
                   </div>
                   <div className="replay-result-actions"><button onClick={rerollReplay}>换种子重演</button><button onClick={exportReplay}>导出 TXT</button><button className="send-replay" onClick={sendReplayToDesk}>送入跑团记录台 →</button></div>
                 </section>
 
                 <section className="replay-scenes" aria-label="自动生成的 Replay 场景">
                   {replay.scenes.map((scene) => <article className={`panel replay-scene-card beat-${scene.beat}`} key={scene.id}>
-                    <header><span>{scene.phase} · {scene.beat}</span><h3>{String(scene.index).padStart(2, "0")} / {scene.title}</h3><div><b>{scene.tension}</b><small>TENSION</small></div></header>
+                    <header><span>{scene.sceneType ? (scene.cycle ? `第${scene.cycle}循环 · ${scene.sceneType}场景` : `${scene.sceneType}场景`) : `${scene.phase} · ${scene.beat}`}</span><h3>{String(scene.index).padStart(2, "0")} / {scene.title}</h3><div><b>{scene.tension}</b><small>TENSION</small></div></header>
                     <div className="replay-lines">{scene.lines.map((line) => <p className={line.kind} key={line.id}><strong>{line.speaker}</strong><span>{tableSafe && line.kind === "reveal" ? "桌面安全模式：秘密揭示已隐藏。" : line.text}</span></p>)}</div>
                   </article>)}
                 </section>
@@ -1306,9 +1471,99 @@ export default function ShinobigamiConsole() {
                   </div>
                 </> : <div className="resolution-empty"><strong>宣言忍法后自动启动</strong><p>控制台会依次锁定命中、同一时机宣言、回避、效果与完成状态；未完成前会阻止误点下一位或新回合。</p></div>}
               </section>
+
+              <section className="panel treasure-panel">
+                <div className="panel-heading battle-heading"><div><span>PRIZE</span><h2>秘宝</h2></div><span className="selection-count">{treasures.length ? `${treasures.length} 件` : "尚未登记"}</span></div>
+                <div className="treasure-list">
+                  {treasures.length ? treasures.map((treasure) => {
+                    const holder = characters.find((character) => character.id === treasure.holderId);
+                    const candidates = characters.filter((character) => character.id !== treasure.holderId);
+                    const targetId = candidates.some((character) => character.id === treasureTargets[treasure.id]) ? treasureTargets[treasure.id] : candidates[0]?.id ?? "";
+                    return <article key={treasure.id}>
+                      <div className="treasure-info"><strong>〈{treasure.name}〉</strong><span>持有者：{holder?.name ?? "无人"}</span>{treasure.note && <em>{treasure.note}</em>}</div>
+                      <div className="treasure-actions">
+                        <label>让渡给<select aria-label={`秘宝 ${treasure.name} 的让渡目标`} value={targetId} onChange={(event) => setTreasureTargets((items) => ({ ...items, [treasure.id]: event.target.value }))}>{candidates.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
+                        <button onClick={() => transferTreasure(treasure.id, targetId)} disabled={!targetId}>让渡</button>
+                        <button className="remove-treasure" onClick={() => removeTreasure(treasure.id)}>删除</button>
+                      </div>
+                    </article>;
+                  }) : <p className="empty-log">尚未登记秘宝。登记后可在战斗结算或剧情节点执行让渡，流向会写入团务记录。</p>}
+                </div>
+                <div className="treasure-form">
+                  <input aria-label="秘宝名称" value={treasureName} onChange={(event) => setTreasureName(event.target.value)} placeholder="秘宝名称" />
+                  <input aria-label="秘宝备注" value={treasureNote} onChange={(event) => setTreasureNote(event.target.value)} placeholder="备注：夺取条件或效果摘要（勿粘贴规则书原文）" />
+                  <button onClick={addTreasure} disabled={!treasureName.trim()}>登记秘宝</button>
+                </div>
+              </section>
             </>
           ) : view === "director" ? (
             <>
+              <section className="panel gm-cockpit">
+                <div className="gm-cockpit-head">
+                  <div>
+                    <span>VETERAN GM CO-PILOT</span>
+                    <h2>熟练 GM 导演席</h2>
+                    <p>给画面、问玩家、讲清得失、让失败继续推动故事。</p>
+                  </div>
+                  <div className={`gm-tension tension-${gmBrief.tensionLabel}`} role="status" aria-label={`当前场景张力 ${gmBrief.tension}，${gmBrief.tensionLabel}`}>
+                    <span>SCENE TENSION</span>
+                    <strong>{gmBrief.tension}</strong>
+                    <em>{gmBrief.tensionLabel}</em>
+                    <i><b style={{ width: `${gmBrief.tension}%` }} /></i>
+                  </div>
+                </div>
+
+                <div className="gm-diagnostics">
+                  {gmBrief.diagnostics.map((item) => <article className={item.tone} key={item.label}><span>{item.label}</span><strong>{item.value}</strong></article>)}
+                  <article className={dueCues.length ? "danger" : "good"}><span>主持事件</span><strong>{gmBrief.privateCue}</strong></article>
+                </div>
+
+                <div className="gm-beat-rail" aria-label="场景节拍">
+                  {GM_BEATS.map((beat, index) => <button key={beat} aria-pressed={gmBeat === beat} className={gmBeat === beat ? "active" : GM_BEATS.indexOf(gmBeat) > index ? "done" : ""} onClick={() => setGmBeat(beat)}><i>{String(index + 1).padStart(2, "0")}</i><span>{beat}</span></button>)}
+                </div>
+
+                <div className="gm-cockpit-body">
+                  <article className="gm-now-card">
+                    <span>NOW / 现在做什么</span>
+                    <h3>{gmBrief.headline}</h3>
+                    <p>{gmBrief.objective}</p>
+                    <div className="gm-spotlight">
+                      <span>建议聚光灯</span>
+                      <strong>{gmBrief.spotlight.name}</strong>
+                      <p>{gmBrief.spotlight.reason}</p>
+                      <button onClick={acceptGmSpotlight}>采用聚光灯建议</button>
+                    </div>
+                  </article>
+
+                  <article className="gm-read-card">
+                    <span>READ ALOUD / 可直接朗读</span>
+                    <blockquote>{gmBrief.readAloud}</blockquote>
+                    <div><button onClick={() => appendGmDirection("opening")}>加入开场</button><button onClick={() => appendGmDirection("question")}>加入提问</button></div>
+                  </article>
+
+                  <article className="gm-stakes-card">
+                    <span>STAKES / 判定前公开</span>
+                    <div className="success"><b>成功</b><p>{gmBrief.success}</p></div>
+                    <div className="failure"><b>失败</b><p>{gmBrief.failure}</p></div>
+                    <div className="complication"><b>建议剧情代价</b><p>{gmBrief.complication}</p></div>
+                  </article>
+                </div>
+
+                <div className="gm-command-bar">
+                  <div className="gm-pressure-control">
+                    <span>环境压力 · {gmBrief.pressureLabel}</span>
+                    <button aria-label="降低环境压力" onClick={() => setGmPressure((value) => Math.max(0, value - 1) as GmPressure)}>−</button>
+                    <strong>{gmPressure}</strong>
+                    <button aria-label="提高环境压力" onClick={() => setGmPressure((value) => Math.min(3, value + 1) as GmPressure)}>＋</button>
+                  </div>
+                  <p>{gmBrief.nextStep}</p>
+                  {sceneAction === "未定" && <button className="gm-action-suggest" onClick={acceptSuggestedAction}>建议：{gmBrief.suggestedAction}</button>}
+                  <button className="gm-fail-forward" onClick={() => appendGmDirection("failure")}>失败也前进</button>
+                  {gmBeat === "余波" && <button onClick={() => appendGmDirection("aftermath")}>记录余波</button>}
+                  <button className="gm-next-beat" onClick={advanceGmBeat} disabled={gmBeat === "余波"}>下一节拍 →</button>
+                </div>
+              </section>
+
               <div className="director-grid">
                 <section className="panel scene-panel">
                   <div className="panel-heading battle-heading">
@@ -1395,7 +1650,10 @@ export default function ShinobigamiConsole() {
                   <label className="name-field">角色名<input value={selected.name} onChange={(event) => updateCharacter(selected.id, { name: event.target.value })} /></label>
                   <label>玩家<input value={selected.player ?? ""} onChange={(event) => updateCharacter(selected.id, { player: event.target.value })} /></label>
                   <label>流派<input value={selected.faction} onChange={(event) => updateCharacter(selected.id, { faction: event.target.value })} /></label>
+                  <label>下位流派<input value={selected.subFaction ?? ""} onChange={(event) => updateCharacter(selected.id, { subFaction: event.target.value })} placeholder="如无可留空" /></label>
                   <label>阶级<select value={selected.rank} onChange={(event) => updateCharacter(selected.id, { rank: event.target.value })}><option>下忍</option><option>中忍</option><option>中忍头</option><option>上忍</option><option>上忍头</option><option>头领</option></select></label>
+                  <label>习得条件<input value={selected.condition ?? ""} onChange={(event) => updateCharacter(selected.id, { condition: event.target.value })} placeholder="条件" /></label>
+                  <label>流仪<input value={selected.style ?? ""} onChange={(event) => updateCharacter(selected.id, { style: event.target.value })} /></label>
                   <label>年龄<input value={selected.age ?? ""} onChange={(event) => updateCharacter(selected.id, { age: event.target.value })} /></label>
                   <label>性别<input value={selected.gender ?? ""} onChange={(event) => updateCharacter(selected.id, { gender: event.target.value })} /></label>
                   <label>表之颜<input value={selected.cover ?? ""} onChange={(event) => updateCharacter(selected.id, { cover: event.target.value })} /></label>
@@ -1411,6 +1669,24 @@ export default function ShinobigamiConsole() {
                 <label>人物故事<textarea value={selected.story ?? ""} onChange={(event) => updateCharacter(selected.id, { story: event.target.value })} placeholder="外表、性格、经历与角色钩子" /></label>
                 <label>背景<textarea value={selected.backgrounds ?? ""} onChange={(event) => updateCharacter(selected.id, { backgrounds: event.target.value })} placeholder="每行一个背景，可写类型与效果摘要" /></label>
               </div>
+              <section className="background-sheet">
+                <div className="subsection-heading"><div><span>BACKGROUND LIST</span><h3>背景清单</h3></div><small>结构化条目支持从纯文本角色卡自动识别</small></div>
+                <div className="background-table" role="table" aria-label="背景清单">
+                  <div className="background-table-head" role="row"><span>序号</span><span>名称</span><span>类别</span><span>功绩点</span><span>效果</span><span /></div>
+                  {selected.backgroundItems.length ? selected.backgroundItems.map((item) => <div className="background-table-row" role="row" key={item.id}>
+                    <input aria-label="背景序号" value={item.serial} onChange={(event) => updateBackgroundItem(item.id, { serial: event.target.value })} placeholder="序号" />
+                    <input aria-label="背景名称" value={item.name} onChange={(event) => updateBackgroundItem(item.id, { name: event.target.value })} />
+                    <input aria-label="背景类别" value={item.category} onChange={(event) => updateBackgroundItem(item.id, { category: event.target.value })} placeholder="长处／短处" />
+                    <input aria-label="背景功绩点" type="number" value={item.points} onChange={(event) => updateBackgroundItem(item.id, { points: Number(event.target.value) || 0 })} />
+                    <input aria-label="背景效果" value={item.effect} onChange={(event) => updateBackgroundItem(item.id, { effect: event.target.value })} placeholder="效果摘要（勿粘贴规则书原文）" />
+                    <button aria-label={`删除背景 ${item.name}`} onClick={() => removeBackgroundItem(item.id)}>×</button>
+                  </div>) : <p className="empty-log">还没有结构化背景；可手动添加，或粘贴角色卡文本自动识别背景清单行。</p>}
+                </div>
+                <div className="background-foot">
+                  <button onClick={addBackgroundItem}>＋ 添加背景</button>
+                  <em>功绩点小计：{selected.backgroundItems.reduce((sum, item) => sum + item.points, 0)}（长处为正、短处为负）</em>
+                </div>
+              </section>
               <div className="ougi-grid">
                 <label>奥义名<input value={selected.ougi} onChange={(event) => updateCharacter(selected.id, { ougi: event.target.value })} /></label>
                 <label>指定特技<input value={selected.ougiSkill ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiSkill: event.target.value })} /></label>
@@ -1427,11 +1703,30 @@ export default function ShinobigamiConsole() {
                 <textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={"粘贴角色卡文本，例如：\n名前：角色名\n流派：鞍马神流\n階級：中忍\n使命：……\n特技：刀術、走法……"} />
                 <div className="import-preview"><span>识别 {importPreview.recognized} 项</span><b>{importPreview.name ?? "未识别姓名"}</b><em>{importPreview.skills.length} 特技 · {importPreview.ninpoIds.length} 忍法</em><button onClick={applyCharacterImport} disabled={!importPreview.recognized}>应用到当前角色</button></div>
               </section>
+              <section className="interop-panel">
+                <div className="subsection-heading">
+                  <div><span>OPEN-SOURCE BRIDGES</span><h3>开源团务互通桥</h3></div>
+                  <small>导出结构，不上传资料，也不内置外部项目代码或规则表正文</small>
+                </div>
+                <div className="interop-source-strip">
+                  <a href="https://github.com/bcdice/BCDice" target="_blank" rel="noreferrer"><b>BCDice</b><span>BSD-3-Clause · nSG@s#f&gt;=x</span></a>
+                  <a href="https://github.com/neotaso/CCFOLIA-Akyou" target="_blank" rel="noreferrer"><b>CCFOLIA Clipboard</b><span>MIT · character JSON</span></a>
+                  <a href="https://github.com/ksx0330/FVTT-Shinobigami-System" target="_blank" rel="noreferrer"><b>Foundry VTT</b><span>MIT · Actor / Item schema</span></a>
+                </div>
+                <div className="interop-body">
+                  <div className="interop-preview"><span>BCDice 调色板预览</span><pre>{createBCDicePalette(selected, allNinpo).split("\n").slice(0, 5).join("\n")}</pre></div>
+                  <div className="interop-actions">
+                    <label className={tableSafe ? "disabled" : ""}><input type="checkbox" checked={interopPrivate && !tableSafe} disabled={tableSafe} onChange={(event) => setInteropPrivate(event.target.checked)} />导出时包含秘密与奥义</label>
+                    <p>{tableSafe ? "桌面安全模式已锁定：所有出口只含公开资料。" : interopPrivate ? "私人资料将进入 CCFOLIA 备忘与 Foundry Handout；请只交给对应玩家或 GM。" : "默认只导出公开资料；本地立绘不会嵌入 JSON。"}</p>
+                    <div><button onClick={copyBCDicePalette}>复制 BCDice 调色板</button><button onClick={copyCCFoliaCharacter}>复制 CCFOLIA 角色</button><button className="foundry-export" onClick={downloadFoundryActor}>导出 Foundry Actor</button></div>
+                  </div>
+                </div>
+              </section>
               <section className="equipped-ninpo-sheet">
                 <div className="subsection-heading"><div><span>AUTOMATIC NINPO LIST</span><h3>已装备忍法清单</h3></div><small>效果仅保存你的摘要；完整规则仍以所用规则书为准</small></div>
                 <div className="ninpo-table" role="table" aria-label="已装备忍法清单">
                   <div className="ninpo-table-head" role="row"><span>忍法</span><span>类型</span><span>指定特技</span><span>距离</span><span>花费</span><span>效果摘要</span></div>
-                  {allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id)).map((ninpo) => <div className="ninpo-table-row" role="row" key={ninpo.id}><strong>{ninpo.name}</strong><span>{ninpo.kind}</span><span>{ninpo.skill}</span><span>{ninpo.range >= 99 ? "无" : ninpo.range}</span><span>{ninpo.cost || "无"}</span><p>{ninpo.summary}</p></div>)}
+                  {allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id)).map((ninpo) => <div className="ninpo-table-row" role="row" key={ninpo.id}><strong>{ninpo.name}{(ninpo.serial || ninpo.school) && <small className="ninpo-origin">{[ninpo.serial, ninpo.school].filter(Boolean).join(" · ")}</small>}</strong><span>{ninpo.kind}</span><span>{ninpo.skill}</span><span>{ninpo.range >= 99 ? "无" : ninpo.range}</span><span>{ninpo.cost || "无"}</span><p>{ninpo.summary}{ninpo.note && <span className="ninpo-note">备忘：{ninpo.note}</span>}</p></div>)}
                 </div>
               </section>
               <section className="ninpo-loadout">
@@ -1444,6 +1739,7 @@ export default function ShinobigamiConsole() {
                   <label>距离<input type="number" min="0" max="99" value={customRange} onChange={(event) => setCustomRange(Number(event.target.value))} /></label>
                   <label>花费<input type="number" min="0" max="99" value={customCost} onChange={(event) => setCustomCost(Number(event.target.value))} /></label>
                   <input className="custom-summary" aria-label="自定义忍法效果摘要" placeholder="效果摘要（请勿粘贴整段规则书原文）" value={customSummary} onChange={(event) => setCustomSummary(event.target.value)} />
+                  <input className="custom-note" aria-label="自定义忍法备忘" placeholder="备忘（可选）" value={customNote} onChange={(event) => setCustomNote(event.target.value)} />
                   <button onClick={addCustomNinpo}>＋ 加入配置</button>
                 </div>
               </section>

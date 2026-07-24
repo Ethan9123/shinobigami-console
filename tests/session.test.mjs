@@ -37,7 +37,7 @@ const sessionOutput = ts.transpileModule(sessionSource, {
 }).outputText;
 const session = await import(`data:text/javascript;base64,${Buffer.from(sessionOutput).toString("base64")}`);
 
-test("legacy save migrates to the v0.7 replay schema", () => {
+test("legacy v7 save migrates losslessly to the v0.8 treasure schema", () => {
   const migrated = session.normalizeGameState({
     characters: [{
       id: "legacy-pc",
@@ -54,7 +54,7 @@ test("legacy save migrates to the v0.7 replay schema", () => {
     phase: "主要",
   });
 
-  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.schemaVersion, 8);
   assert.equal(migrated.selectedId, "legacy-pc");
   assert.equal(migrated.brief.playerCount, 1);
   assert.equal(migrated.handouts.length, 1);
@@ -67,6 +67,44 @@ test("legacy save migrates to the v0.7 replay schema", () => {
   assert.equal(migrated.characters[0].merit, 0);
   assert.equal(migrated.transcript, null);
   assert.equal(migrated.replay, null);
+  assert.deepEqual(migrated.characters[0].backgroundItems, []);
+  assert.deepEqual(migrated.treasures, []);
+});
+
+test("treasures and background items are normalized against the roster", () => {
+  const migrated = session.normalizeGameState({
+    characters: [{
+      id: "pc-a",
+      name: "灰原鹭",
+      role: "PC",
+      faction: "私立御斋学园",
+      rank: "中忍",
+      life: {},
+      skills: ["刀术"],
+      ninpoIds: ["close"],
+      tools: {},
+      backgroundItems: [
+        { id: "bg-1", serial: "10412", name: "夜市眼线", points: "3", category: "长处（社会）", effect: "情报判定获得加值" },
+        { serial: "20077", points: 5 },
+        "not-an-object",
+      ],
+    }],
+    treasures: [
+      { id: "t1", name: "封蜡卷轴", holderId: "pc-a", note: "开局由灰原鹭保管" },
+      { id: "t2", name: "无铭铜镜", holderId: "ghost-id", note: "" },
+      { holderId: "pc-a", note: "缺少名称的非法项" },
+      "not-an-object",
+    ],
+  });
+
+  assert.equal(migrated.schemaVersion, 8);
+  assert.deepEqual(migrated.characters[0].backgroundItems, [
+    { id: "bg-1", serial: "10412", name: "夜市眼线", points: 3, category: "长处（社会）", effect: "情报判定获得加值" },
+  ]);
+  assert.equal(migrated.treasures.length, 2);
+  assert.deepEqual(migrated.treasures[0], { id: "t1", name: "封蜡卷轴", holderId: "pc-a", note: "开局由灰原鹭保管" });
+  assert.equal(migrated.treasures[1].name, "无铭铜镜");
+  assert.equal(migrated.treasures[1].holderId, "");
 });
 
 test("invalid save is rejected instead of reaching the interface", () => {

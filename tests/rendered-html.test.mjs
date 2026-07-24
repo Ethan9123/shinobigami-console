@@ -11,7 +11,7 @@ test("product page replaces the starter preview", async () => {
 
   assert.match(page, /ShinobigamiConsole/);
   assert.match(layout, /lang="zh-CN"/);
-  assert.match(layout, /og-replay-v07\.png/);
+  assert.match(layout, /og\.png/);
   assert.match(product, /秘密布局|布局阶段/);
   assert.match(product, /BCDice 风格|BCDice STYLE/i);
   assert.match(product, /忍法配置/);
@@ -25,13 +25,22 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 0\.7/);
+  assert.match(product, /MVP 1\.0/);
+  assert.match(product, /秘宝/);
+  assert.match(product, /实战巡回/);
   assert.match(product, /角色工作台/);
   assert.match(product, /跑团记录台/);
   assert.match(product, /自动 Replay 工房/);
   assert.match(product, /张力曲线/);
   assert.match(product, /送入跑团记录台/);
   assert.match(product, /已装备忍法清单/);
+  assert.match(product, /开源团务互通桥/);
+  assert.match(product, /CCFOLIA 角色/);
+  assert.match(product, /Foundry Actor/);
+  assert.match(product, /熟练 GM 导演席/);
+  assert.match(product, /失败也前进/);
+  assert.match(product, /可直接朗读/);
+  assert.match(product, /建议聚光灯/);
   assert.match(product + tutorial, /第一次忍务/);
   assert.match(tutorial + tutorialData, /雨夜零号线/);
   assert.match(tutorial, /安全工具/);
