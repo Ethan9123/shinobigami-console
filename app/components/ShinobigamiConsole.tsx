@@ -11,12 +11,14 @@ import {
   FIELD_NAMES,
   FieldName,
   findSkillPosition,
+  checkFumbleLine,
   makeLife,
   nearestSkill,
   Ninpo,
   parseCharacterText,
   rollD6,
   SKILL_TABLE,
+  substituteSkill,
   uid,
 } from "../lib/rules";
 import {
@@ -70,6 +72,7 @@ export default function ShinobigamiConsole() {
   const [history, setHistory] = useState<GameState[]>([]);
   const [view, setView] = useState<"tutorial" | "prep" | "battle" | "sheet" | "replay" | "director">("tutorial");
   const [targetSkill, setTargetSkill] = useState("刀术");
+  const [substituteSkillChoice, setSubstituteSkillChoice] = useState("auto");
   const [modifier, setModifier] = useState(0);
   const [lastRoll, setLastRoll] = useState<{ dice: number[]; kept: number[]; total: number; result: string } | null>(null);
   const [selectedNinpoId, setSelectedNinpoId] = useState("close");
@@ -175,16 +178,20 @@ export default function ShinobigamiConsole() {
     }),
     [selected],
   );
-  const check = nearestSkill(availableSkills, targetSkill, selected?.closedGaps ?? []);
+  const automaticCheck = nearestSkill(availableSkills, targetSkill, selected?.closedGaps ?? []);
+  const check = substituteSkillChoice === "auto"
+    ? automaticCheck
+    : substituteSkill(availableSkills, targetSkill, substituteSkillChoice, selected?.closedGaps ?? []);
   const battleOrder = useMemo(
     () => characters.filter((character) => character.active).sort((a, b) => (b.plot ?? -1) - (a.plot ?? -1)),
     [characters],
   );
   const currentActor = battleOrder.length ? battleOrder[turnIndex % battleOrder.length] : null;
-  const fumbleLine = revealed && selected?.plot ? selected.plot : 2;
+  const inAttackWindow = view === "battle" && revealed;
+  const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected?.plot });
   const odds = useMemo(
-    () => calculateCheckOdds(diceCount, check.target, modifier, 12, fumbleLine),
-    [diceCount, check.target, modifier, fumbleLine],
+    () => calculateCheckOdds(diceCount, check.target, modifier, 12, fumbleLine, check.criticalOnly),
+    [check.criticalOnly, check.target, diceCount, modifier, fumbleLine],
   );
   const importPreview = useMemo(() => parseCharacterText(importText), [importText]);
   const filteredTranscript = useMemo(() => {
@@ -948,13 +955,13 @@ export default function ShinobigamiConsole() {
     const kept = [...dice].sort((a, b) => b - a).slice(0, 2);
     const raw = kept[0] + kept[1];
     const total = raw + modifier;
-    const fumbleLine = revealed && selected.plot ? selected.plot : 2;
-    let result = total >= check.target ? "成功" : "失败";
+    const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected.plot });
+    let result = !check.criticalOnly && total >= check.target ? "成功" : "失败";
     if (raw >= 12) result = "大成功";
-    if (raw <= fumbleLine) result = revealed ? "大失败／逆止" : "大失败";
+    if (raw <= fumbleLine) result = inAttackWindow ? "大失败／逆止" : "大失败";
     setLastRoll({ dice, kept, total, result });
     if (resolution) setResolution(advanceResolutionAfterRoll(resolution, selected.id, result));
-    const command = `${diceCount > 2 ? diceCount : ""}SG@12#${fumbleLine}>=${check.target}`;
+    const command = `${diceCount > 2 ? diceCount : ""}SG@12#${fumbleLine}>=${check.criticalOnly ? 99 : check.target}`;
     const poolText = diceCount > 2 ? `${dice.join(",")} → 取高 ${kept.join("+")}` : kept.join("+");
     addLog(`[${command}] ${selected.name} 以${check.skill}代用${targetSkill}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}。`, result.includes("失败") ? "danger" : "roll");
     if (result.includes("逆止") && !selected.conditions.includes("逆止")) {
@@ -1296,7 +1303,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.1</span>
+          <span className="version">MVP 1.2</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1487,7 +1494,7 @@ export default function ShinobigamiConsole() {
                       <div className="plot-options" aria-label={`${character.name} 的布局`}>
                         {[1, 2, 3, 4, 5, 6].map((plot) => <button key={plot} className={character.plot === plot ? "chosen" : ""} onClick={() => setPlot(character, plot)} aria-label={`${character.name} 选择布局 ${plot}`}>{character.plot === plot && !revealed ? "◆" : plot}</button>)}
                       </div>
-                      <span className="risk-label">大失败 ≤ {character.plot ?? 2}</span>
+                      <span className="risk-label">攻击处理大失败 ≤ {character.plot ?? 2}</span>
                     </div>
                   ))}
                 </div>
@@ -1510,7 +1517,13 @@ export default function ShinobigamiConsole() {
                     <label>指定特技<select value={targetSkill} onChange={(event) => setTargetSkill(event.target.value)}>{FIELD_NAMES.map((field) => <optgroup label={field} key={field}>{SKILL_TABLE[field].map((skill) => <option value={skill} key={skill}>{skill}</option>)}</optgroup>)}</select></label>
                     <div className="target-number"><span>目标值</span><strong>{check.target}</strong></div>
                   </div>
-                  <p className="substitution">最近代用：<b>{check.skill}</b> <span>距离 {check.distance}</span></p>
+                  <label className="field-label">使用特技
+                    <select value={availableSkills.includes(substituteSkillChoice) ? substituteSkillChoice : "auto"} onChange={(event) => setSubstituteSkillChoice(event.target.value)}>
+                      <option value="auto">自动选择最近：{automaticCheck.skill}</option>
+                      {availableSkills.map((skill) => <option value={skill} key={skill}>{skill}{skill === automaticCheck.skill ? "（最近）" : "（主动远距代用）"}</option>)}
+                    </select>
+                  </label>
+                  <p className="substitution">本次使用：<b>{check.skill}</b> <span>距离 {check.distance}</span>{check.criticalOnly && <em>无可用特技：仅大成功可成功</em>}</p>
                   <div className="odds-panel">
                     <div><span>成功率</span><strong>{(odds.success * 100).toFixed(1)}%</strong></div>
                     <div className="odds-bar"><i className="fumble" style={{ width: `${odds.fumble * 100}%` }} /><i className="success" style={{ width: `${odds.success * 100}%` }} /></div>
@@ -1783,7 +1796,8 @@ export default function ShinobigamiConsole() {
                 <div className="relationship-grid">
                   <div className="relation-builder">
                     <h3>建立定向感情</h3>
-                    <div className="relation-form"><select value={emotionFromId} onChange={(event) => setEmotionFromId(event.target.value)}>{characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select><span>对</span><select value={emotionToId} onChange={(event) => setEmotionToId(event.target.value)}>{characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select><select value={emotionIndex} onChange={(event) => setEmotionIndex(Number(event.target.value))}>{EMOTION_PAIRS.map((pair, index) => <option key={pair.join("/")} value={index}>{pair[0]} / {pair[1]}</option>)}</select><select value={emotionPositive ? "positive" : "negative"} onChange={(event) => setEmotionPositive(event.target.value === "positive")}><option value="positive">正面</option><option value="negative">负面</option></select><button onClick={addEmotion}>记录</button></div>
+                    <div className="relation-form"><select value={emotionFromId} onChange={(event) => setEmotionFromId(event.target.value)}>{characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select><span>对</span><select value={emotionToId} onChange={(event) => setEmotionToId(event.target.value)}>{characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select><select value={emotionIndex} onChange={(event) => setEmotionIndex(Number(event.target.value))}>{EMOTION_PAIRS.map((pair, index) => <option key={pair.join("/")} value={index}>{pair[0]} / {pair[1]}</option>)}</select><select value={emotionPositive ? "positive" : "negative"} onChange={(event) => setEmotionPositive(event.target.value === "positive")}><option value="positive">正面</option><option value="negative">负面</option></select><button onClick={addEmotion}>逐向记录</button></div>
+                    <small>感情判定成功后，场景玩家与同场目标各自掷 1D6，并分别决定正面或负面；请为两个方向各记录一次。</small>
                     <div className="emotion-list">{emotions.length ? emotions.map((emotion) => { const from = characters.find((character) => character.id === emotion.fromId)?.name; const to = characters.find((character) => character.id === emotion.toId)?.name; return <article key={emotion.id} className={emotion.positive ? "positive" : "negative"}><div><strong>{from}</strong><span>→</span><strong>{to}</strong><b>{emotion.label}</b></div><button className={emotion.used ? "used" : ""} onClick={() => markEmotionUsed(emotion.id)}>{emotion.used ? "本轮已修正" : `${emotion.positive ? "+1" : "−1"} 修正`}</button></article>; }) : <p className="empty-log">尚未建立感情。</p>}</div>
                   </div>
                   <div className="intel-builder">
@@ -1923,14 +1937,14 @@ export default function ShinobigamiConsole() {
             <div className="panel-heading"><div><span>SESSION LOG</span><h2>{phase}阶段 · {phase === "主要" ? `第 ${cycle} 巡` : `第 ${round} 回合`}</h2></div><button className="clear-log" onClick={() => setLogs([])}>清空</button></div>
             <div className="log-list">{logs.length ? logs.slice().reverse().map((entry) => <article className={`log-entry ${entry.tone}`} key={entry.id}><span>{phase === "主要" ? `C${entry.cycle ?? cycle}` : `R${entry.round}`}</span><p>{tableSafe ? "桌面安全模式：记录内容已隐藏" : entry.text}</p></article>) : <p className="empty-log">还没有记录。</p>}</div>
           </> : <div className="rules-list">
-            <article><span>01</span><div><h3>行为判定</h3><p>目标值＝5＋指定特技到最近已习得特技的格数。通常投 2D6，达到目标值即成功。</p></div></article>
-            <article><span>02</span><div><h3>特殊骰点</h3><p>通常 12 为大成功、2 为大失败。战斗攻击处理中，大失败值改为当前布局值。</p></div></article>
+            <article><span>01</span><div><h3>行为判定</h3><p>目标值＝5＋指定特技到所用已习得特技的格数。默认选择最近特技，玩家也可以主动选择更远的特技代用；目标值不封顶。</p></div></article>
+            <article><span>02</span><div><h3>特殊骰点</h3><p>大成功与大失败只看修正前骰点。通常 12 为大成功、2 为大失败；战斗从攻击处理到回合结束，大失败值改为当前布局值并造成逆止。</p></div></article>
             <article><span>03</span><div><h3>布局与行动</h3><p>秘密选择 1–6 后同时公开，由高到低行动；高布局更快，但大失败风险也更高。</p></div></article>
             <article><span>04</span><div><h3>距离与花费</h3><p>双方布局差不得超过忍法距离；同回合忍法累计花费不得超过自己的布局值。</p></div></article>
             <article><span>05</span><div><h3>伤害</h3><p>接近战随机失去分野生命力；射击战由受伤者选择；集体战通常获得变调。</p></div></article>
             <article><span>06</span><div><h3>BCDice 风格</h3><p>本工具日志记录 SG 命令。额外骰池采用 nSG 的“投 n 颗、取高 2 颗”方式。</p></div></article>
             <article><span>07</span><div><h3>情报共享</h3><p>当你抱有感情的角色直接获得情报时，你自动获得同一情报；共享所得不会继续触发连锁共享。</p></div></article>
-            <article><span>08</span><div><h3>巡与场景</h3><p>主要阶段每位 PC 每巡有一次主要行动。场景玩家必须登场，回复、情报、感情、战斗或计划判定择一处理。</p></div></article>
+            <article><span>08</span><div><h3>巡与场景</h3><p>主要阶段每位 PC 每巡有一次主要行动。剧情场景从回复、情报、感情中择一；GM 还可按剧本设置计划判定。辅助判定是 GM 设置的简单行动，不消耗主要行动。</p></div></article>
             <article><span>09</span><div><h3>宣言窗口</h3><p>同一时机可能有多个效果时，先询问是否继续宣言；确认无人追加后再推进回避或效果，避免错过时机后回溯。</p></div></article>
             <article><span>10</span><div><h3>同速批次</h3><p>同一布局的攻击视为同时发生；先完成同速角色的攻击，再统一应用生命减少、逆止、变调与附带效果。</p></div></article>
           </div>}

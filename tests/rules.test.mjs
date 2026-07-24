@@ -14,6 +14,32 @@ test("filled gaps shorten substitution distance", () => {
   assert.equal(rules.skillDistance("机关术", "骑乘术", [true]), 1);
 });
 
+test("substitution follows revised rules without capping target value", () => {
+  const automatic = rules.nearestSkill(["机关术", "怪力"], "咒术");
+  const deliberate = rules.substituteSkill(["机关术", "怪力"], "咒术", "机关术");
+  const unavailable = rules.nearestSkill([], "刀术");
+
+  assert.equal(deliberate.skill, "机关术", "players may deliberately use a farther learned skill");
+  assert.equal(deliberate.target, 5 + rules.skillDistance("机关术", "咒术"), "target value is 5 + distance and is not capped at 12");
+  assert.ok(deliberate.target > 12);
+  assert.ok(deliberate.target > automatic.target);
+  assert.deepEqual(unavailable, { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true });
+  assert.equal(Number(rules.calculateCheckOdds(2, unavailable.target, 8, 12, 2, unavailable.criticalOnly).success.toFixed(4)), 0.0278, "only a critical succeeds without usable skills, even with modifiers");
+});
+
+test("fumble line changes only in the attack-processing window", () => {
+  assert.equal(rules.checkFumbleLine(), 2);
+  assert.equal(rules.checkFumbleLine({ plot: 5 }), 2);
+  assert.equal(rules.checkFumbleLine({ inAttackWindow: true, plot: 5 }), 5);
+  assert.equal(rules.checkFumbleLine({ supportCost: 2 }), 4);
+});
+
+test("revised condition and emotion terminology matches the current tables", () => {
+  assert.deepEqual(rules.CONDITIONS.slice(0, 6), ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒"]);
+  assert.deepEqual(rules.EMOTION_PAIRS[0], ["共感", "不信"]);
+  assert.equal(rules.COMMON_NINPO.some((item) => item.id === "emotion"), false, "emotion modifier is a system rule, not a ninpo");
+});
+
 test("probability engine respects critical and fumble outcomes", () => {
   const odds = rules.calculateCheckOdds(2, 7, 0, 12, 2);
   assert.equal(Number(odds.success.toFixed(4)), 0.5833);
@@ -88,10 +114,11 @@ test("pre-flight gate separates hard blockers from adjustable build quotas", () 
   };
   const requirements = { requiredSkills: 6, requiredNinpoSlots: 4, requiredTools: 2 };
   const blocked = rules.evaluateSessionReadiness([character], [handout], 1, requirements);
-  assert.deepEqual(blocked.map((issue) => issue.code).sort(), ["card-unreviewed", "questions-open", "secret-undelivered"]);
+  assert.ok(blocked.some((issue) => issue.code === "ninpo-quota"), "legacy emotion pseudo-ninpo must not count toward the four slots");
+  assert.deepEqual(blocked.map((issue) => issue.code).sort(), ["card-unreviewed", "ninpo-quota", "questions-open", "secret-undelivered"]);
 
   const ready = rules.evaluateSessionReadiness(
-    [character],
+    [{ ...character, ninpoIds: [...character.ninpoIds, "kamaitachi"] }],
     [{ ...handout, delivered: true, reviewed: true, questionsResolved: true }],
     1,
     requirements,

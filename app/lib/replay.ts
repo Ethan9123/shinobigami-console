@@ -124,10 +124,10 @@ const SCENE_TITLES: Record<ReplayBeat, string[]> = {
 // 实战巡回模式专用素材池：全部原创，禁止引用官方文本或玩家 log。
 const NUMERALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 
-// 感情表（自建常量，索引 0~5 对应 1D6；每项 [正面, 负面]）
-const EMOTION_PAIRS: Array<[string, string]> = [["共鸣", "猜疑"], ["友情", "愤怒"], ["爱情", "嫉妒"], ["忠诚", "轻蔑"], ["憧憬", "自卑"], ["狂信", "杀意"]];
+// 改订版感情名称，索引 0~5 对应 1D6；每项 [正面, 负面]。
+const EMOTION_PAIRS: Array<[string, string]> = [["共感", "不信"], ["友情", "愤怒"], ["爱情", "嫉妒"], ["忠诚", "轻蔑"], ["憧憬", "自卑"], ["狂信", "杀意"]];
 
-const HENCHOU_POOL = ["麻痹", "重伤", "故障", "失忆", "行踪不明", "诅咒"];
+const HENCHOU_POOL = ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒"];
 
 // 场景表（自建原创地点池，索引 0~5 对应 1D6）
 const CAMPAIGN_SCENE_TABLE: Record<ReplayGenre, string[]> = {

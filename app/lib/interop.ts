@@ -86,7 +86,7 @@ export function createBCDicePalette(character: Character, ninpo: Ninpo[], option
     if (item.kind === "装备") continue;
     const check = nearestSkill(usable, item.skill, character.closedGaps);
     const substitute = item.skill !== "自由" && check.skill !== item.skill ? `→${check.skill}` : "";
-    commands.push(sgCommand(check.target, `${item.name}／${item.skill}${substitute}`, special, fumble));
+    commands.push(sgCommand(check.criticalOnly ? 99 : check.target, `${item.name}／${item.skill}${substitute}`, special, fumble));
   }
 
   commands.push("ET 感情表", "FT ファンブル表", "WT 変調表", "BT 戦场表", "ST 场景表", "RCT 随机分野", "RTT 随机特技");
@@ -153,12 +153,15 @@ export function createCCFoliaCharacter(character: Character, ninpo: Ninpo[], opt
 
 function foundryTalentTable(character: Character) {
   const usable = availableSkills(character);
-  return FIELD_NAMES.map((field) => SKILL_TABLE[field].map((skill) => ({
-    state: character.skills.includes(skill),
-    num: String(nearestSkill(usable, skill, character.closedGaps).target),
-    stop: false,
-    expert: false,
-  })));
+  return FIELD_NAMES.map((field) => SKILL_TABLE[field].map((skill) => {
+    const check = nearestSkill(usable, skill, character.closedGaps);
+    return {
+      state: character.skills.includes(skill),
+      num: String(check.criticalOnly ? 99 : check.target),
+      stop: false,
+      expert: false,
+    };
+  }));
 }
 
 function foundryItems(character: Character, ninpo: Ninpo[], includePrivate: boolean): FoundryItem[] {

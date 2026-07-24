@@ -47,7 +47,8 @@ test("legacy v7 save migrates losslessly to the v0.8 treasure schema", () => {
       rank: "中忍",
       life: { 器术: true },
       skills: ["刀术"],
-      ninpoIds: ["close"],
+      ninpoIds: ["close", "emotion"],
+      conditions: ["失忆"],
       tools: { 神通丸: 1 },
     }],
     selectedId: "missing-id",
@@ -69,6 +70,8 @@ test("legacy v7 save migrates losslessly to the v0.8 treasure schema", () => {
   assert.equal(migrated.replay, null);
   assert.deepEqual(migrated.characters[0].backgroundItems, []);
   assert.deepEqual(migrated.treasures, []);
+  assert.deepEqual(migrated.characters[0].ninpoIds, ["close"]);
+  assert.deepEqual(migrated.characters[0].conditions, ["忘却"]);
 });
 
 test("treasures and background items are normalized against the roster", () => {

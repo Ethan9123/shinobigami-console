@@ -41,13 +41,12 @@ export const COMMON_NINPO: Ninpo[] = [
   { id: "cross", name: "交叉", kind: "攻击", skill: "刀术", range: 0, cost: 1, damage: "接近战伤害 2", summary: "在同一布局发动的高威力斩击。" },
   { id: "poison", name: "毒手", kind: "攻击", skill: "毒术", range: 0, cost: 1, damage: "接近战伤害 1＋麻痹", summary: "命中后造成伤害，并附加麻痹变调。" },
   { id: "kamaitachi", name: "镰鼬", kind: "攻击", skill: "绳术", range: 2, cost: 1, damage: "射击战伤害 1", summary: "难以回避的远距离攻击，回避判定受到减值。" },
-  { id: "emotion", name: "感情修正", kind: "支援", skill: "自由", range: 99, cost: 0, summary: "在投骰前给予拥有感情的角色 +1 或 -1 修正。" },
 ];
 
-export const CONDITIONS = ["麻痹", "重伤", "故障", "失忆", "行踪不明", "诅咒", "逆止"];
+export const CONDITIONS = ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒", "逆止"];
 
 export const EMOTION_PAIRS = [
-  ["共鸣", "猜疑"],
+  ["共感", "不信"],
   ["友情", "愤怒"],
   ["爱情", "嫉妒"],
   ["忠诚", "轻蔑"],
@@ -79,12 +78,41 @@ export function skillDistance(from: string, to: string, closedGaps: boolean[] = 
 }
 
 export function nearestSkill(learned: string[], target: string, closedGaps: boolean[] = []) {
-  if (!target || target === "自由") return { skill: learned[0] ?? "未选择", distance: 0, target: 5 };
-  if (!learned.length) return { skill: "无可用特技", distance: 7, target: 12 };
+  if (!target || target === "自由") return { skill: learned[0] ?? "未选择", distance: 0, target: 5, criticalOnly: !learned.length };
+  if (!learned.length) return { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true };
   const sorted = learned
     .map((skill) => ({ skill, distance: skillDistance(skill, target, closedGaps) }))
     .sort((a, b) => a.distance - b.distance);
-  return { ...sorted[0], target: Math.min(12, 5 + sorted[0].distance) };
+  return { ...sorted[0], target: 5 + sorted[0].distance, criticalOnly: false };
+}
+
+export function substituteSkill(
+  learned: string[],
+  target: string,
+  selectedSkill: string,
+  closedGaps: boolean[] = [],
+) {
+  if (!target || target === "自由") {
+    const skill = learned.includes(selectedSkill) ? selectedSkill : learned[0] ?? "未选择";
+    return { skill, distance: 0, target: 5, criticalOnly: !learned.length };
+  }
+  if (!learned.length) return { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true };
+  if (!learned.includes(selectedSkill)) return nearestSkill(learned, target, closedGaps);
+  const distance = skillDistance(selectedSkill, target, closedGaps);
+  return { skill: selectedSkill, distance, target: 5 + distance, criticalOnly: false };
+}
+
+export function checkFumbleLine({
+  inAttackWindow = false,
+  plot = null,
+  supportCost = 0,
+}: {
+  inAttackWindow?: boolean;
+  plot?: number | null;
+  supportCost?: number;
+} = {}) {
+  if (inAttackWindow && plot != null) return Math.max(1, Math.min(12, Math.floor(plot)));
+  return Math.max(1, Math.min(12, 2 + Math.max(0, Math.floor(supportCost))));
 }
 
 export type CheckOdds = {
@@ -100,6 +128,7 @@ export function calculateCheckOdds(
   modifier = 0,
   special = 12,
   fumble = 2,
+  criticalOnly = false,
 ): CheckOdds {
   const safeCount = Math.max(2, Math.min(6, Math.floor(diceCount)));
   const totalOutcomes = 6 ** safeCount;
@@ -120,7 +149,7 @@ export function calculateCheckOdds(
     const raw = kept[0] + kept[1];
     if (raw <= fumble) fumbleCount += 1;
     else if (raw >= special) critical += 1;
-    else if (raw + modifier >= target) ordinarySuccess += 1;
+    else if (!criticalOnly && raw + modifier >= target) ordinarySuccess += 1;
   };
   visit(0);
 
@@ -361,7 +390,8 @@ export function evaluateCharacterBuild(
   requirements: BuildRequirements,
 ): ReadinessIssue[] {
   const issues: ReadinessIssue[] = [];
-  const ninpoSlots = new Set(character.ninpoIds.filter((id) => id !== "close")).size;
+  // v1.1 以前曾把系统动作“感情修正”保存成伪忍法；迁移时不能让它占用忍法槽。
+  const ninpoSlots = new Set(character.ninpoIds.filter((id) => id !== "close" && id !== "emotion")).size;
   const toolCount = Object.values(character.tools).reduce((sum, count) => sum + Math.max(0, Number(count) || 0), 0);
 
   if (!character.mission.trim()) {
