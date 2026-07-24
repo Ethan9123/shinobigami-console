@@ -1,4 +1,4 @@
-import type { Character, Emotion, IntelRecord, SceneAction, SceneCue, Tracker } from "./session";
+import type { Character, Emotion, IntelRecord, LogEntry, SceneAction, SceneCue, Tracker } from "./session";
 
 export const GM_BEATS = ["定调", "聚焦", "抉择", "余波"] as const;
 export type GmBeat = (typeof GM_BEATS)[number];
@@ -16,6 +16,7 @@ export type GmDirectorInput = {
   intel: IntelRecord[];
   trackers: Tracker[];
   cues: SceneCue[];
+  logs?: LogEntry[];
   beat: GmBeat;
   pressure: GmPressure;
   tableSafe: boolean;
@@ -109,14 +110,28 @@ function aliveLife(character: Character) {
   return Object.values(character.life).filter(Boolean).length + character.extraLife;
 }
 
+function completedScenesFor(input: GmDirectorInput, character: Character) {
+  return (input.logs ?? []).filter((entry) => (
+    entry.tone === "action" && entry.text.includes(`场完成：${character.name} 进行了`)
+  )).length;
+}
+
 function chooseSpotlight(input: GmDirectorInput) {
   const pcs = input.characters.filter((character) => character.role === "PC" && character.active);
   const owner = pcs.find((character) => character.id === input.sceneOwnerId);
   const waiting = pcs.filter((character) => !character.acted);
-  const spotlight = owner && (!owner.acted || !waiting.length) ? owner : waiting[0] ?? owner ?? pcs[0] ?? input.characters[0];
+  const countFor = (id: string) => {
+    const character = pcs.find((item) => item.id === id);
+    return character ? completedScenesFor(input, character) : 0;
+  };
+  const eligible = waiting.length ? waiting : pcs;
+  const leastSeen = eligible.slice().sort((a, b) => countFor(a.id) - countFor(b.id))[0];
+  const spotlight = owner && eligible.includes(owner) && countFor(owner.id) <= countFor(leastSeen?.id ?? "")
+    ? owner
+    : leastSeen ?? owner ?? pcs[0] ?? input.characters[0];
   const reason = spotlight?.id === owner?.id
-    ? owner.acted ? "本巡人人都已行动，继续围绕当前场景玩家收束。" : "当前场景玩家尚未行动，应把决定权留给他。"
-    : waiting.length ? "当前场景玩家已经行动，优先把镜头交给仍在等待的人。" : "维持当前主角，尽快完成本巡收束。";
+    ? owner.acted ? "本巡人人都已行动，继续围绕当前场景玩家收束。" : "当前场景玩家尚未行动，且累计镜头没有高于其他等待者。"
+    : waiting.length ? `${spotlight?.name ?? "这名角色"}仍在等待，且累计完成场景较少，优先询问他想让什么发生。` : "本巡已经收束，优先照顾累计镜头较少的角色。";
   return { id: spotlight?.id ?? "", name: spotlight?.name ?? "场景玩家", reason };
 }
 
@@ -175,6 +190,9 @@ export function createGmBrief(input: GmDirectorInput): GmBrief {
   const totalIntel = Math.max(1, input.characters.length * 3);
   const pcCount = input.characters.filter((character) => character.role === "PC").length;
   const actedCount = input.characters.filter((character) => character.role === "PC" && character.acted).length;
+  const sceneCount = input.characters
+    .filter((character) => character.role === "PC")
+    .reduce((sum, character) => sum + completedScenesFor(input, character), 0);
   const clock = input.trackers
     .slice()
     .sort((a, b) => (b.max ? b.value / b.max : 0) - (a.max ? a.value / a.max : 0))[0];
@@ -204,7 +222,7 @@ export function createGmBrief(input: GmDirectorInput): GmBrief {
       ? input.tableSafe ? `${due.length} 个主持事件已经到点；切回 GM 视图查看内容。` : `已到点：${due.map((cue) => cue.title).join("、")}`
       : "当前没有到点的主持事件。",
     diagnostics: [
-      { label: "聚光灯", value: `${actedCount}/${pcCount || 1} 位 PC 已行动`, tone: actedCount < pcCount ? "warn" : "good" },
+      { label: "聚光灯", value: `本巡 ${actedCount}/${pcCount || 1} · 全局 ${sceneCount} 场`, tone: actedCount < pcCount ? "warn" : "good" },
       { label: "事件时钟", value: clock ? `${clock.name} ${clock.value}/${clock.max}` : "尚未设置", tone: clock && clock.max && clock.value / clock.max >= .75 ? "danger" : "good" },
       { label: "情报可见度", value: `${knownIntel}/${totalIntel} 条潜在线索已流动`, tone: knownIntel ? "good" : "warn" },
     ],

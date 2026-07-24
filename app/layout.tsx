@@ -11,15 +11,15 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: "忍神控制台",
-    description: "本地优先的《忍神》团务辅助工具：熟练 GM 导演席、自动 Replay、场景节拍、失败推进，以及 BCDice、CCFOLIA 与 Foundry VTT 互通。",
+    description: "本地优先的《忍神》团务辅助工具：场景牌桌、局势神谕、镜头账本、熟练 GM 导演席、自动 Replay，以及开源团务互通。",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "忍神控制台",
-      description: "熟练 GM 导演席 · 自动 Replay · 失败也前进",
+      description: "场景牌桌 · 局势神谕 · 镜头账本 · 自动 Replay",
       type: "website",
-      images: [{ url: imageUrl, width: 1729, height: 910, alt: "忍神控制台：熟练 GM 导演席与自动 Replay 工房" }],
+      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "忍神控制台：场景牌桌、局势神谕与熟练 GM 导演席" }],
     },
-    twitter: { card: "summary_large_image", title: "忍神控制台", description: "熟练 GM 导演席 · 自动 Replay · 失败也前进", images: [imageUrl] },
+    twitter: { card: "summary_large_image", title: "忍神控制台", description: "场景牌桌 · 局势神谕 · 镜头账本", images: [imageUrl] },
   };
 }
 

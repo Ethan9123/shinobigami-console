@@ -4,6 +4,14 @@
 
 > 本仓库不包含规则书、模组正文、字幕原文或完整忍法资料。使用者仍需合法持有原作资料；导入的立绘、角色卡文本和跑团记录默认只留在当前浏览器及用户主动导出的 JSON 存档中。
 
+## v1.1：场景牌桌与局势神谕
+
+- 场景导演新增“场景牌桌”，每幕自动给出地点、动静、线索与代价四张原创灵感牌；可分别锁定、重抽未锁定牌、单张或整组写入场景笔记，让临场素材始终可见且可操作；
+- 情报、感情、回复、战斗与计划五类场景可从牌桌一键切换。卡牌只描述可见局势与开放式问题，不读取角色秘密，也不会自动触发规则效果；
+- 新增本地 2D6“局势神谕”：GM 可先选择“不太可能 / 五五开 / 很可能”，再获得有利、附带条件、新入口或明确不利的方向；对子与高张力低点数可能带来异变，但结果只用于主持灵感；
+- 镜头账本从已完成场景日志统计每名 PC 的累计场次和占比。聚光灯建议会先照顾本巡未行动者，再优先累计镜头较少的人；
+- 交互模式参考开源团务工具的公开设计：Fari 的场景卡与公开/私密分区、COMP/CON 的当前行动聚焦、Iron Fellowship 的主持神谕与共享进度、Obsidian Initiative Tracker 的快速状态反馈、Solo Toolkit 的紧凑进度条。没有复制这些项目的代码、规则文本或美术。
+
 ## v1.0：熟练 GM 导演席
 
 - 场景导演首屏升级为“熟练 GM 导演席”，按照「定调 → 聚焦 → 抉择 → 余波」四个节拍带领一场戏，当前该做什么始终在首屏可见；
@@ -101,6 +109,11 @@ npm test
 - [BCDice / ShinobiGami 命令实现（BSD-3-Clause）](https://github.com/bcdice/BCDice/blob/master/lib/bcdice/game_system/ShinobiGami.rb)
 - [CCFOLIA-Akyou：角色剪贴板结构参考（MIT）](https://github.com/neotaso/CCFOLIA-Akyou)
 - [FVTT-Shinobigami-System：Actor / Item 结构参考（MIT）](https://github.com/ksx0330/FVTT-Shinobigami-System)
+- [Fari：开源场景卡式 VTT（AGPL-3.0）](https://github.com/farirpgs/fari-app)
+- [COMP/CON：LANCER 玩家与 GM 工具（GPL-3.0）](https://github.com/massif-press/compcon)
+- [Iron Fellowship：Ironsworn 团务与 GM 屏](https://github.com/scottbenton/Iron-Fellowship_and_Crew-Link)
+- [Obsidian Initiative Tracker：遭遇快照与状态追踪（GPL-3.0）](https://github.com/VeroVerro/obsidian-initiative-tracker)
+- [Solo Toolkit：骰点与进度追踪工具](https://github.com/alexkurowski/solo-toolkit)
 - [Pathfinder Beginner Box：在冒险中逐步教学](https://paizo.com/pathfinder/beginnerbox)
 - [Foundry Virtual Tabletop Tours：可恢复的分步引导](https://foundryvtt.com/article/tours/)
 - [TTRPG Safety Toolkit](https://ttrpgsafetytoolkit.com/)

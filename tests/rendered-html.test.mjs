@@ -25,7 +25,7 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 1\.0/);
+  assert.match(product, /MVP 1\.1/);
   assert.match(product, /秘宝/);
   assert.match(product, /实战巡回/);
   assert.match(product, /角色工作台/);
@@ -41,6 +41,9 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /失败也前进/);
   assert.match(product, /可直接朗读/);
   assert.match(product, /建议聚光灯/);
+  assert.match(product, /场景牌桌/);
+  assert.match(product, /局势神谕/);
+  assert.match(product, /镜头账本/);
   assert.match(product + tutorial, /第一次忍务/);
   assert.match(tutorial + tutorialData, /雨夜零号线/);
   assert.match(tutorial, /安全工具/);

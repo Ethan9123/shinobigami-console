@@ -50,6 +50,8 @@ import type { GeneratedReplay, ReplayEnding, ReplayGenre, ReplayLength, ReplayMo
 import { createBCDicePalette, createCCFoliaCharacter, createFoundryActor, serializeInterop } from "../lib/interop";
 import { composeGmNote, createGmBrief, GM_BEATS } from "../lib/gm";
 import type { GmBeat, GmPressure } from "../lib/gm";
+import { askSceneOracle, calculateSpotlightLedger, generateSceneDeck } from "../lib/director";
+import type { SceneCard, SceneCardKind, SceneOracleLikelihood, SceneOracleResult } from "../lib/director";
 import TutorialRunner from "./tutorial/TutorialRunner";
 
 const STORAGE_KEY = "shinobigami-console-v1";
@@ -116,6 +118,12 @@ export default function ShinobigamiConsole() {
   const [interopPrivate, setInteropPrivate] = useState(false);
   const [gmBeat, setGmBeat] = useState<GmBeat>("定调");
   const [gmPressure, setGmPressure] = useState<GmPressure>(1);
+  const [sceneDeckNonce, setSceneDeckNonce] = useState(0);
+  const [lockedSceneCards, setLockedSceneCards] = useState<Partial<Record<SceneCardKind, SceneCard>>>({});
+  const [oracleQuestion, setOracleQuestion] = useState("");
+  const [oracleLikelihood, setOracleLikelihood] = useState<SceneOracleLikelihood>("五五开");
+  const [oracleResult, setOracleResult] = useState<SceneOracleResult | null>(null);
+  const [oracleNonce, setOracleNonce] = useState(0);
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [transcriptSpeaker, setTranscriptSpeaker] = useState("");
@@ -204,10 +212,26 @@ export default function ShinobigamiConsole() {
     intel,
     trackers,
     cues,
+    logs,
     beat: gmBeat,
     pressure: gmPressure,
     tableSafe,
   });
+  const spotlightLedger = useMemo(
+    () => calculateSpotlightLedger(characters, logs),
+    [characters, logs],
+  );
+  const sceneCards = useMemo(
+    () => generateSceneDeck({
+      title: brief.title,
+      cycle,
+      sceneNumber,
+      action: sceneAction,
+      tension: gmBrief.tension,
+      spotlightName: gmBrief.spotlight.name,
+    }, sceneDeckNonce).map((card) => lockedSceneCards[card.kind] ?? card),
+    [brief.title, cycle, gmBrief.spotlight.name, gmBrief.tension, lockedSceneCards, sceneAction, sceneDeckNonce, sceneNumber],
+  );
   const preflightIssues = useMemo(
     () => evaluateSessionReadiness(characters, handouts, brief.playerCount, brief.requirements),
     [brief, characters, handouts],
@@ -478,6 +502,58 @@ export default function ShinobigamiConsole() {
     addLog(`聚光灯交给 ${gmBrief.spotlight.name}；请先询问玩家想让这一幕发生什么。`, "system");
   };
 
+  const toggleSceneCardLock = (card: SceneCard) => {
+    setLockedSceneCards((current) => {
+      if (current[card.kind]) {
+        const next = { ...current };
+        delete next[card.kind];
+        return next;
+      }
+      return { ...current, [card.kind]: card };
+    });
+  };
+
+  const rerollSceneCards = () => {
+    setSceneDeckNonce((value) => value + 1);
+    addLog("场景牌桌已重抽未锁定的灵感牌；不会改变任何规则状态。", "system");
+  };
+
+  const appendSceneCard = (card: SceneCard) => {
+    checkpoint();
+    const note = `【${card.kind} · ${card.title}】${card.body} ${card.prompt}`;
+    setSceneNote((current) => [current.trim(), note].filter(Boolean).join("\n"));
+    addLog(`“${card.title}”已加入当前场景笔记。`, "system");
+  };
+
+  const appendSceneDeck = () => {
+    checkpoint();
+    const notes = sceneCards.map((card) => `【${card.kind} · ${card.title}】${card.body} ${card.prompt}`).join("\n");
+    setSceneNote((current) => [current.trim(), notes].filter(Boolean).join("\n"));
+    addLog("整组场景牌已加入当前场景笔记，可继续改写或删减。", "system");
+  };
+
+  const runSceneOracle = () => {
+    const nextNonce = oracleNonce + 1;
+    const question = oracleQuestion.trim() || "接下来最可能改变局势的是什么？";
+    const result = askSceneOracle({
+      question,
+      likelihood: oracleLikelihood,
+      tension: gmBrief.tension,
+      seed: `${brief.title}:${cycle}:${sceneNumber}:${nextNonce}`,
+    });
+    setOracleNonce(nextNonce);
+    setOracleResult(result);
+    addLog(`局势神谕：${result.dice.join("＋")} → ${result.label}。这只是主持灵感，不代替判定。`, "roll");
+  };
+
+  const appendOracleResult = () => {
+    if (!oracleResult) return;
+    checkpoint();
+    const note = `【局势神谕 · ${oracleResult.label}】${oracleResult.answer} ${oracleResult.prompt}${oracleResult.twist ? ` 异变：${oracleResult.twist}` : ""}`;
+    setSceneNote((current) => [current.trim(), note].filter(Boolean).join("\n"));
+    addLog("局势神谕结果已加入当前场景笔记。", "system");
+  };
+
   const advanceGmBeat = () => {
     const index = GM_BEATS.indexOf(gmBeat);
     setGmBeat(GM_BEATS[Math.min(GM_BEATS.length - 1, index + 1)]);
@@ -501,6 +577,10 @@ export default function ShinobigamiConsole() {
     setSceneNote("");
     setGmBeat("定调");
     setGmPressure((value) => Math.max(0, value - 1) as GmPressure);
+    setSceneDeckNonce(0);
+    setLockedSceneCards({});
+    setOracleQuestion("");
+    setOracleResult(null);
   };
 
   const newCycle = () => {
@@ -515,6 +595,10 @@ export default function ShinobigamiConsole() {
     setSceneNote("");
     setGmBeat("定调");
     setGmPressure(1);
+    setSceneDeckNonce(0);
+    setLockedSceneCards({});
+    setOracleQuestion("");
+    setOracleResult(null);
     setCharacters((items) => items.map((character) => ({ ...character, acted: false })));
     setEmotions((items) => items.map((emotion) => ({ ...emotion, used: false })));
     addLog(`进入第 ${nextCycle} 巡，所有 PC 恢复未行动状态。`, "system", nextCycle);
@@ -1212,7 +1296,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.0</span>
+          <span className="version">MVP 1.1</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1561,6 +1645,82 @@ export default function ShinobigamiConsole() {
                   <button className="gm-fail-forward" onClick={() => appendGmDirection("failure")}>失败也前进</button>
                   {gmBeat === "余波" && <button onClick={() => appendGmDirection("aftermath")}>记录余波</button>}
                   <button className="gm-next-beat" onClick={advanceGmBeat} disabled={gmBeat === "余波"}>下一节拍 →</button>
+                </div>
+              </section>
+
+              <section className="panel scene-table">
+                <div className="scene-table-head">
+                  <div>
+                    <span>ACTIVE SCENE MODE</span>
+                    <h2>场景牌桌</h2>
+                    <p>把可见素材放上桌，锁住想保留的牌，再让玩家决定如何回应。</p>
+                  </div>
+                  <div className="scene-presets" aria-label="快速选择场景行动">
+                    {(["情报判定", "感情判定", "回复判定", "战斗", "计划判定"] as SceneAction[]).map((action) => (
+                      <button key={action} className={sceneAction === action ? "active" : ""} aria-pressed={sceneAction === action} onClick={() => setSceneAction(action)}>
+                        {action.replace("判定", "")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="scene-table-body">
+                  <div className="scene-deck-area">
+                    <div className="scene-card-grid">
+                      {sceneCards.map((card) => {
+                        const locked = Boolean(lockedSceneCards[card.kind]);
+                        return (
+                          <article className={`scene-card kind-${card.kind} ${locked ? "locked" : ""}`} key={card.kind}>
+                            <header>
+                              <span>{card.kind}</span>
+                              <button aria-label={`${locked ? "解锁" : "锁定"}${card.kind}牌`} aria-pressed={locked} onClick={() => toggleSceneCardLock(card)}>
+                                {locked ? "已锁" : "锁定"}
+                              </button>
+                            </header>
+                            <h3>{card.title}</h3>
+                            <p>{card.body}</p>
+                            <blockquote>{card.prompt}</blockquote>
+                            <button className="scene-card-use" onClick={() => appendSceneCard(card)}>写入本场</button>
+                          </article>
+                        );
+                      })}
+                    </div>
+                    <div className="scene-deck-actions">
+                      <button onClick={rerollSceneCards}>重抽未锁定</button>
+                      <button onClick={appendSceneDeck}>整组写入场景笔记</button>
+                      <small>牌桌内容为原创主持灵感，不会改写判定、伤害、变调或秘密。</small>
+                    </div>
+                  </div>
+
+                  <aside className="scene-oracle">
+                    <header><span>SITUATION ORACLE</span><h3>局势神谕</h3></header>
+                    <label>卡住时问一个可验证的问题<input value={oracleQuestion} onChange={(event) => setOracleQuestion(event.target.value)} placeholder="例如：目标是否仍在附近？" /></label>
+                    <div className="oracle-likelihood" aria-label="发生倾向">
+                      {(["不太可能", "五五开", "很可能"] as SceneOracleLikelihood[]).map((likelihood) => (
+                        <button key={likelihood} className={oracleLikelihood === likelihood ? "active" : ""} aria-pressed={oracleLikelihood === likelihood} onClick={() => setOracleLikelihood(likelihood)}>{likelihood}</button>
+                      ))}
+                    </div>
+                    <button className="oracle-roll" onClick={runSceneOracle}>询问局势 · 2D6</button>
+                    {oracleResult ? (
+                      <article className={`oracle-result ${oracleResult.tone}`} aria-live="polite">
+                        <div><span>{oracleResult.dice[0]} ＋ {oracleResult.dice[1]}</span><strong>{oracleResult.label}</strong></div>
+                        <p>{oracleResult.answer}</p>
+                        <blockquote>{oracleResult.prompt}</blockquote>
+                        {oracleResult.twist && <em>异变：{oracleResult.twist}</em>}
+                        <button onClick={appendOracleResult}>写入本场</button>
+                      </article>
+                    ) : <p className="oracle-empty">选择倾向后掷骰。结果只回答局势方向，最终解释仍由 GM 与玩家共同完成。</p>}
+                  </aside>
+                </div>
+
+                <div className="spotlight-ledger">
+                  <div><span>SPOTLIGHT LEDGER</span><strong>镜头账本</strong><small>按已完成场景统计</small></div>
+                  {spotlightLedger.map((entry) => (
+                    <article key={entry.id}>
+                      <header><b>{entry.name}</b><span>{entry.scenes} 场 · {entry.share}%</span></header>
+                      <i><b style={{ width: `${entry.scenes ? Math.max(entry.share, 8) : 2}%` }} /></i>
+                    </article>
+                  ))}
                 </div>
               </section>
 

@@ -45,6 +45,18 @@ test("GM spotlight favors a PC who has not acted yet", () => {
   assert.equal(brief.suggestedAction, "情报判定");
 });
 
+test("GM spotlight breaks same-round ties with the completed-scene ledger", () => {
+  const waiting = characters.slice(0, 2).map((character) => ({ ...character, acted: false }));
+  const logs = [
+    { tone: "action", text: "第 1 巡第 1 场完成：月影 进行了情报判定。" },
+    { tone: "action", text: "第 1 巡第 2 场完成：月影 进行了感情判定。" },
+  ];
+  const brief = gm.createGmBrief(input({ characters: waiting, sceneOwnerId: "pc-1", logs }));
+
+  assert.equal(brief.spotlight.id, "pc-2");
+  assert.match(brief.spotlight.reason, /累计完成场景较少/);
+});
+
 test("a wounded spotlight receives a recovery suggestion before other scene actions", () => {
   const wounded = characters.map((character) => character.id === "pc-2" ? { ...character, life: life(3) } : character);
   const brief = gm.createGmBrief(input({ characters: wounded }));
