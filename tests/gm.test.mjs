@@ -19,7 +19,7 @@ const characters = [
 
 function input(patch = {}) {
   return {
-    title: "追忆",
+    title: "雾町夜话",
     cycle: 1,
     sceneNumber: 2,
     sceneOwnerId: "pc-1",

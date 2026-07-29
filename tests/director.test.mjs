@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 const director = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 
 const deckInput = {
-  title: "追忆",
+  title: "雾町夜话",
   cycle: 2,
   sceneNumber: 3,
   action: "情报判定",

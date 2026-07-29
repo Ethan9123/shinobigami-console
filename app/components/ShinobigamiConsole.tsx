@@ -1370,7 +1370,7 @@ export default function ShinobigamiConsole() {
                 </div>
                 <div className="source-audit">
                   <strong>本地资料体检</strong>
-                  <p>检测到 6 个字幕文件内容完全相同，实际只有一段约 7 分 45 秒的开团与车卡教学；本工具不会把重复文件误判成六个完整章节，也不会上传字幕或规则书原文。</p>
+                  <p>本工具不读取、不上传本机的规则书、字幕或其他本地文件；所有导入内容只在当前浏览器内解析，团务数据默认只存在本地存档中。</p>
                 </div>
                 <div className="brief-grid">
                   <label className="brief-title">忍务名称<input value={brief.title} onChange={(event) => updateBrief({ title: event.target.value })} /></label>

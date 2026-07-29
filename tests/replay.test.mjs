@@ -21,7 +21,7 @@ const cast = [
 ];
 
 const config = {
-  title: "追忆",
+  title: "雾町夜话",
   genre: "都市悬疑",
   length: "标准",
   ending: "苦涩胜利",
@@ -56,7 +56,7 @@ test("secrets are opt-in and safe mode compatible", () => {
 
 test("generated replay can be opened by the local replay desk", () => {
   const generated = replayModule.generateReplay(cast, config);
-  const archive = transcriptModule.parseTranscript(generated.text, "追忆 · 自动 Replay");
+  const archive = transcriptModule.parseTranscript(generated.text, "雾町夜话 · 自动 Replay");
 
   assert.ok(archive.scenes.length >= generated.scenes.length);
   assert.ok(archive.entries.some((entry) => entry.speaker === "月影"));
