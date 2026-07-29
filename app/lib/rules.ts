@@ -20,6 +20,18 @@ export type Ninpo = {
   cost: number;
   summary: string;
   damage?: string;
+  serial?: string;
+  school?: string;
+  note?: string;
+};
+
+export type BackgroundItem = {
+  id: string;
+  serial: string;
+  name: string;
+  category: string;
+  points: number;
+  effect: string;
 };
 
 export const COMMON_NINPO: Ninpo[] = [
@@ -29,13 +41,12 @@ export const COMMON_NINPO: Ninpo[] = [
   { id: "cross", name: "交叉", kind: "攻击", skill: "刀术", range: 0, cost: 1, damage: "接近战伤害 2", summary: "在同一布局发动的高威力斩击。" },
   { id: "poison", name: "毒手", kind: "攻击", skill: "毒术", range: 0, cost: 1, damage: "接近战伤害 1＋麻痹", summary: "命中后造成伤害，并附加麻痹变调。" },
   { id: "kamaitachi", name: "镰鼬", kind: "攻击", skill: "绳术", range: 2, cost: 1, damage: "射击战伤害 1", summary: "难以回避的远距离攻击，回避判定受到减值。" },
-  { id: "emotion", name: "感情修正", kind: "支援", skill: "自由", range: 99, cost: 0, summary: "在投骰前给予拥有感情的角色 +1 或 -1 修正。" },
 ];
 
-export const CONDITIONS = ["麻痹", "重伤", "故障", "失忆", "行踪不明", "诅咒", "逆止"];
+export const CONDITIONS = ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒", "逆止"];
 
 export const EMOTION_PAIRS = [
-  ["共鸣", "猜疑"],
+  ["共感", "不信"],
   ["友情", "愤怒"],
   ["爱情", "嫉妒"],
   ["忠诚", "轻蔑"],
@@ -67,12 +78,41 @@ export function skillDistance(from: string, to: string, closedGaps: boolean[] = 
 }
 
 export function nearestSkill(learned: string[], target: string, closedGaps: boolean[] = []) {
-  if (!target || target === "自由") return { skill: learned[0] ?? "未选择", distance: 0, target: 5 };
-  if (!learned.length) return { skill: "无可用特技", distance: 7, target: 12 };
+  if (!target || target === "自由") return { skill: learned[0] ?? "未选择", distance: 0, target: 5, criticalOnly: !learned.length };
+  if (!learned.length) return { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true };
   const sorted = learned
     .map((skill) => ({ skill, distance: skillDistance(skill, target, closedGaps) }))
     .sort((a, b) => a.distance - b.distance);
-  return { ...sorted[0], target: Math.min(12, 5 + sorted[0].distance) };
+  return { ...sorted[0], target: 5 + sorted[0].distance, criticalOnly: false };
+}
+
+export function substituteSkill(
+  learned: string[],
+  target: string,
+  selectedSkill: string,
+  closedGaps: boolean[] = [],
+) {
+  if (!target || target === "自由") {
+    const skill = learned.includes(selectedSkill) ? selectedSkill : learned[0] ?? "未选择";
+    return { skill, distance: 0, target: 5, criticalOnly: !learned.length };
+  }
+  if (!learned.length) return { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true };
+  if (!learned.includes(selectedSkill)) return nearestSkill(learned, target, closedGaps);
+  const distance = skillDistance(selectedSkill, target, closedGaps);
+  return { skill: selectedSkill, distance, target: 5 + distance, criticalOnly: false };
+}
+
+export function checkFumbleLine({
+  inAttackWindow = false,
+  plot = null,
+  supportCost = 0,
+}: {
+  inAttackWindow?: boolean;
+  plot?: number | null;
+  supportCost?: number;
+} = {}) {
+  if (inAttackWindow && plot != null) return Math.max(1, Math.min(12, Math.floor(plot)));
+  return Math.max(1, Math.min(12, 2 + Math.max(0, Math.floor(supportCost))));
 }
 
 export type CheckOdds = {
@@ -88,6 +128,7 @@ export function calculateCheckOdds(
   modifier = 0,
   special = 12,
   fumble = 2,
+  criticalOnly = false,
 ): CheckOdds {
   const safeCount = Math.max(2, Math.min(6, Math.floor(diceCount)));
   const totalOutcomes = 6 ** safeCount;
@@ -108,7 +149,7 @@ export function calculateCheckOdds(
     const raw = kept[0] + kept[1];
     if (raw <= fumble) fumbleCount += 1;
     else if (raw >= special) critical += 1;
-    else if (raw + modifier >= target) ordinarySuccess += 1;
+    else if (!criticalOnly && raw + modifier >= target) ordinarySuccess += 1;
   };
   visit(0);
 
@@ -187,29 +228,65 @@ const SKILL_ALIASES: Record<string, string> = {
 export type ParsedCharacterText = {
   name?: string;
   faction?: string;
+  subFaction?: string;
+  condition?: string;
+  style?: string;
   rank?: string;
+  player?: string;
+  age?: string;
+  gender?: string;
+  cover?: string;
+  belief?: string;
+  merit?: number;
+  enemy?: string;
+  surface?: string;
+  story?: string;
+  backgrounds?: string;
   mission?: string;
   secret?: string;
   ougi?: string;
+  ougiSkill?: string;
+  ougiEffect?: string;
+  ougiStrength?: string;
+  ougiWeakness?: string;
   skills: string[];
   ninpoIds: string[];
+  backgroundItems: BackgroundItem[];
   recognized: number;
 };
 
+// 背景清单行：序号(3~5位) 名称 点数(可负) 类别(长处/短处，可带系别括注) 效果
+const BACKGROUND_LINE = /^(\d{3,5})\s+(\S+)\s+(-?\d+)\s*((?:长处|短处|長處|短處)(?:[（(][^（）()]*[）)])?)?\s*(.*)$/;
+
 export function parseCharacterText(input: string): ParsedCharacterText {
   const text = input.replace(/\r/g, "").trim();
-  const result: ParsedCharacterText = { skills: [], ninpoIds: [], recognized: 0 };
+  const result: ParsedCharacterText = { skills: [], ninpoIds: [], backgroundItems: [], recognized: 0 };
   if (!text) return result;
 
-  const labels: Array<[keyof Pick<ParsedCharacterText, "name" | "faction" | "rank" | "mission" | "secret" | "ougi">, RegExp]> = [
+  const labels: Array<[keyof Pick<ParsedCharacterText, "name" | "faction" | "condition" | "style" | "rank" | "player" | "age" | "gender" | "cover" | "belief" | "enemy" | "surface" | "story" | "backgrounds" | "mission" | "secret" | "ougi" | "ougiSkill" | "ougiEffect" | "ougiStrength" | "ougiWeakness">, RegExp]> = [
     ["name", /^(?:名前|姓名|角色名)\s*[：:]\s*(.*)$/i],
     ["faction", /^(?:流派|所属流派)\s*[：:]\s*(.*)$/i],
+    ["condition", /^(?:条件|條件|习得条件|習得條件)\s*[：:]\s*(.*)$/i],
+    ["style", /^(?:流仪|流儀)\s*[：:]\s*(.*)$/i],
     ["rank", /^(?:階級|阶级|等級|等级)\s*[：:]\s*(.*)$/i],
+    ["player", /^(?:玩家|PL|Player)\s*[：:]\s*(.*)$/i],
+    ["age", /^(?:年龄|年齢)\s*[：:]\s*(.*)$/i],
+    ["gender", /^(?:性别|性別)\s*[：:]\s*(.*)$/i],
+    ["cover", /^(?:表之颜|表の顔|表的身份|表身份)\s*[：:]\s*(.*)$/i],
+    ["belief", /^(?:信念)\s*[：:]\s*(.*)$/i],
+    ["enemy", /^(?:仇敌|仇敵)\s*[：:]\s*(.*)$/i],
+    ["surface", /^(?:表之颜|表之顏|表的身份)\s*[：:]\s*(.*)$/i],
+    ["story", /^(?:人物故事|设定|設定|角色故事)\s*[：:]\s*(.*)$/i],
+    ["backgrounds", /^(?:背景|背景清单|背景清單)\s*[：:]\s*(.*)$/i],
     ["mission", /^【?(?:使命)】?\s*[：:]?\s*(.*)$/i],
     ["secret", /^【?(?:秘密)】?\s*[：:]?\s*(.*)$/i],
     ["ougi", /^(?:奥義名|奧義名|奥义名|奥義|奧義|奥义)\s*[：:]\s*(.*)$/i],
+    ["ougiSkill", /^(?:指定特技)\s*[：:]\s*(.*)$/i],
+    ["ougiEffect", /^(?:奥义效果|奧義效果|奥義效果|效果)\s*[：:]\s*(.*)$/i],
+    ["ougiStrength", /^(?:强化|強化|强项|強項)\s*[：:]\s*(.*)$/i],
+    ["ougiWeakness", /^(?:弱点|弱點)\s*[：:]\s*(.*)$/i],
   ];
-  let activeBlock: "mission" | "secret" | null = null;
+  let activeBlock: "mission" | "secret" | "story" | "backgrounds" | null = null;
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -219,12 +296,38 @@ export function parseCharacterText(input: string): ParsedCharacterText {
       if (!hit) continue;
       const value = hit[1]?.trim();
       if (value) result[key] = value;
-      activeBlock = key === "mission" || key === "secret" ? key : null;
+      activeBlock = key === "mission" || key === "secret" || key === "story" || key === "backgrounds" ? key : null;
       matched = true;
       break;
     }
+    // 仅在背景清单块内识别背景行，避免把正文里以数字开头的叙述误判为背景条目
+    if (!matched && activeBlock === "backgrounds") {
+      const backgroundHit = line.match(BACKGROUND_LINE);
+      if (backgroundHit) {
+        result.backgroundItems.push({
+          id: uid("bg"),
+          serial: backgroundHit[1],
+          name: backgroundHit[2],
+          points: Number(backgroundHit[3]),
+          category: backgroundHit[4]?.trim() ?? "",
+          effect: backgroundHit[5]?.trim() ?? "",
+        });
+        matched = true;
+      }
+    }
     if (!matched && activeBlock && !/^(?:●|■|――|忍法|背景|人物|特技)/.test(line)) {
       result[activeBlock] = [result[activeBlock], line].filter(Boolean).join("\n");
+    }
+  }
+
+  if (result.faction) {
+    const cleaned = result.faction.replace(/[【】]/g, "").trim();
+    const split = cleaned.match(/^(.+?)[-－・·](.+)$/);
+    if (split) {
+      result.faction = split[1].trim();
+      result.subFaction = split[2].trim();
+    } else {
+      result.faction = cleaned;
     }
   }
 
@@ -238,9 +341,143 @@ export function parseCharacterText(input: string): ParsedCharacterText {
   for (const ninpo of COMMON_NINPO) {
     if (text.includes(ninpo.name)) result.ninpoIds.push(ninpo.id);
   }
-  result.recognized = [result.name, result.faction, result.rank, result.mission, result.secret, result.ougi]
-    .filter(Boolean).length + result.skills.length + result.ninpoIds.length;
+  const merit = text.match(/(?:功绩点|功績點|功績)\s*[：:]\s*(-?\d+)/i);
+  if (merit) result.merit = Number(merit[1]);
+  result.recognized = [result.name, result.faction, result.subFaction, result.condition, result.style, result.rank, result.player, result.age, result.gender, result.cover, result.belief, result.enemy, result.story, result.backgrounds, result.mission, result.secret, result.ougi, result.ougiSkill, result.ougiEffect, result.ougiStrength, result.ougiWeakness]
+    .filter(Boolean).length + result.skills.length + result.ninpoIds.length + result.backgroundItems.length;
+  if (result.merit != null) result.recognized += 1;
   return result;
+}
+
+export type BuildRequirements = {
+  requiredSkills: number;
+  requiredNinpoSlots: number;
+  requiredTools: number;
+};
+
+export type PreflightCharacter = {
+  id: string;
+  name: string;
+  role: "PC" | "NPC";
+  faction: string;
+  skills: string[];
+  ninpoIds: string[];
+  mission: string;
+  secret: string;
+  tools: Record<string, number>;
+};
+
+export type PreflightHandout = {
+  id: string;
+  slot: string;
+  assignedCharacterId: string;
+  recommendedFaction: string;
+  delivered: boolean;
+  reviewed: boolean;
+  questionsResolved: boolean;
+};
+
+export type ReadinessIssue = {
+  code: string;
+  level: "blocker" | "warning";
+  message: string;
+  characterId?: string;
+  handoutId?: string;
+};
+
+export function evaluateCharacterBuild(
+  character: PreflightCharacter,
+  requirements: BuildRequirements,
+): ReadinessIssue[] {
+  const issues: ReadinessIssue[] = [];
+  // v1.1 以前曾把系统动作“感情修正”保存成伪忍法；迁移时不能让它占用忍法槽。
+  const ninpoSlots = new Set(character.ninpoIds.filter((id) => id !== "close" && id !== "emotion")).size;
+  const toolCount = Object.values(character.tools).reduce((sum, count) => sum + Math.max(0, Number(count) || 0), 0);
+
+  if (!character.mission.trim()) {
+    issues.push({ code: "missing-mission", level: "blocker", characterId: character.id, message: `${character.name} 尚未填写使命。` });
+  }
+  if (!character.secret.trim()) {
+    issues.push({ code: "missing-secret", level: "blocker", characterId: character.id, message: `${character.name} 尚未确认秘密。` });
+  }
+  if (!character.ninpoIds.includes("close")) {
+    issues.push({ code: "missing-basic-attack", level: "blocker", characterId: character.id, message: `${character.name} 缺少不占槽位的接近战攻击。` });
+  }
+  if (character.skills.length !== requirements.requiredSkills) {
+    issues.push({
+      code: "skill-quota",
+      level: "warning",
+      characterId: character.id,
+      message: `${character.name} 目前有 ${character.skills.length} 项特技；本团检查值为 ${requirements.requiredSkills}。`,
+    });
+  }
+  if (ninpoSlots !== requirements.requiredNinpoSlots) {
+    issues.push({
+      code: "ninpo-quota",
+      level: "warning",
+      characterId: character.id,
+      message: `${character.name} 目前占用 ${ninpoSlots} 个忍法槽；本团检查值为 ${requirements.requiredNinpoSlots}。`,
+    });
+  }
+  if (toolCount !== requirements.requiredTools) {
+    issues.push({
+      code: "tool-quota",
+      level: "warning",
+      characterId: character.id,
+      message: `${character.name} 目前携带 ${toolCount} 个忍具；本团检查值为 ${requirements.requiredTools}。`,
+    });
+  }
+  return issues;
+}
+
+export function evaluateSessionReadiness(
+  characters: PreflightCharacter[],
+  handouts: PreflightHandout[],
+  playerCount: number,
+  requirements: BuildRequirements,
+): ReadinessIssue[] {
+  const issues: ReadinessIssue[] = [];
+  const pcs = characters.filter((character) => character.role === "PC");
+  if (pcs.length !== playerCount) {
+    issues.push({ code: "player-count", level: "blocker", message: `公告人数为 ${playerCount}，当前有 ${pcs.length} 位 PC。` });
+  }
+  if (handouts.length !== playerCount) {
+    issues.push({ code: "handout-count", level: "blocker", message: `需要 ${playerCount} 份 PC 位，当前有 ${handouts.length} 份。` });
+  }
+
+  const assigned = handouts.map((handout) => handout.assignedCharacterId).filter(Boolean);
+  const duplicateIds = new Set(assigned.filter((id, index) => assigned.indexOf(id) !== index));
+  for (const handout of handouts) {
+    const character = pcs.find((item) => item.id === handout.assignedCharacterId);
+    if (!character) {
+      issues.push({ code: "unassigned-handout", level: "blocker", handoutId: handout.id, message: `${handout.slot} 尚未分配给有效 PC。` });
+      continue;
+    }
+    if (duplicateIds.has(character.id)) {
+      issues.push({ code: "duplicate-assignment", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${character.name} 被重复分配到多个 PC 位。` });
+    }
+    if (!handout.delivered) {
+      issues.push({ code: "secret-undelivered", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${handout.slot} 的秘密尚未确认送达。` });
+    }
+    if (!handout.reviewed) {
+      issues.push({ code: "card-unreviewed", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${character.name} 的角色卡尚未通过 GM 复核。` });
+    }
+    if (!handout.questionsResolved) {
+      issues.push({ code: "questions-open", level: "blocker", characterId: character.id, handoutId: handout.id, message: `${handout.slot} 仍有秘密或规则问题待确认。` });
+    }
+    const recommended = handout.recommendedFaction.trim();
+    if (recommended && recommended !== "不限" && character.faction.trim() !== recommended) {
+      issues.push({
+        code: "faction-recommendation",
+        level: "warning",
+        characterId: character.id,
+        handoutId: handout.id,
+        message: `${handout.slot} 推荐「${recommended}」，当前角色为「${character.faction || "未填写"}」。`,
+      });
+    }
+  }
+  for (const character of pcs) issues.push(...evaluateCharacterBuild(character, requirements));
+  return issues;
 }
 
 export function makeLife(): Record<FieldName, boolean> {
