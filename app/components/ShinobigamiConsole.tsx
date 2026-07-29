@@ -963,10 +963,21 @@ export default function ShinobigamiConsole() {
     if (resolution) setResolution(advanceResolutionAfterRoll(resolution, selected.id, result));
     const command = `${diceCount > 2 ? diceCount : ""}SG@12#${fumbleLine}>=${check.criticalOnly ? 99 : check.target}`;
     const poolText = diceCount > 2 ? `${dice.join(",")} → 取高 ${kept.join("+")}` : kept.join("+");
-    addLog(`[${command}] ${selected.name} 以${check.skill}代用${targetSkill}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}。`, result.includes("失败") ? "danger" : "roll");
+    const skillPhrase = check.skill === targetSkill ? `以${check.skill}判定` : `以${check.skill}代用${targetSkill}`;
+    addLog(`[${command}] ${selected.name} ${skillPhrase}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}。`, result.includes("失败") ? "danger" : "roll");
     if (result.includes("逆止") && !selected.conditions.includes("逆止")) {
       updateCharacter(selected.id, { conditions: [...selected.conditions, "逆止"] });
     }
+  };
+
+  const rollEmotionTable = () => {
+    const value = rollD6();
+    const pair = EMOTION_PAIRS[value - 1];
+    addLog(`[ET] 感情表：1D6=${value} → ${pair[0]}／${pair[1]}（双方各掷一次，正负自选）。`, "roll");
+  };
+
+  const rollTableHint = (command: string, tableName: string) => {
+    addLog(`[${command}] ${tableName}出目：1D6=${rollD6()}——效果请对照规则书的${tableName}。`, "roll");
   };
 
   const declareNinpo = () => {
@@ -1303,7 +1314,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.2</span>
+          <span className="version">MVP 1.3</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1533,6 +1544,7 @@ export default function ShinobigamiConsole() {
                   <div className="modifier-control"><button onClick={() => setModifier((value) => value - 1)}>−</button><span>修正 <strong>{modifier > 0 ? `+${modifier}` : modifier}</strong></span><button onClick={() => setModifier((value) => value + 1)}>＋</button></div>
                   <button className="roll-button" onClick={rollCheck}><span>{diceCount > 2 ? `${diceCount}SG` : "2SG"} · BCDICE STYLE</span>投掷判定</button>
                   {lastRoll && <div className={`roll-result ${lastRoll.result.includes("失败") ? "failed" : "passed"}`}><span>{lastRoll.dice.join(" · ")}{lastRoll.dice.length > 2 ? ` → ${lastRoll.kept.join("+")}` : ""}</span><strong>{lastRoll.total}</strong><em>{lastRoll.result}</em></div>}
+                  <div className="dice-pool-control quick-tables"><span>快速表骰</span><button onClick={rollEmotionTable}>ET 感情表</button><button onClick={() => rollTableHint("FT", "大失败表")}>FT 出目</button><button onClick={() => rollTableHint("WT", "变调表")}>WT 出目</button><button onClick={() => addLog(`[1D6] 素点：${rollD6()}。`, "roll")}>1D6</button><em>ET 给出感情对；FT／WT 只给出目，效果请对照规则书</em></div>
                 </section>
               </div>
 
