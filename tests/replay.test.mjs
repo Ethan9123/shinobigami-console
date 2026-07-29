@@ -142,3 +142,20 @@ test("normalizeGeneratedReplay accepts schemaVersion 1 archives untouched", () =
   assert.ok(replayModule.normalizeGeneratedReplay(JSON.parse(JSON.stringify(modern))));
   assert.equal(replayModule.normalizeGeneratedReplay({ ...legacy, schemaVersion: 3 }), null);
 });
+
+test("campaign mode avoids duplicated sentence-ending punctuation and varies epilogues by belief", () => {
+  const beliefCast = [
+    { id: "pc1", name: "砂岛铁心", role: "PC", faction: "隐忍血统", mission: "夺回族中信物。", secret: "其实是养子", belief: "凶", skills: ["绳术"], ninpoNames: ["接近战攻击"] },
+    { id: "pc2", name: "苇原雪乃", role: "PC", faction: "私立御斋学园", mission: "调查异变！", secret: "组织的继承人", belief: "和", skills: ["调查术"], ninpoNames: ["接近战攻击"] },
+    { id: "npc1", name: "无面守", role: "NPC", faction: "妖魔", mission: "迎接黎明", secret: "核心藏于旧伤", belief: "凶", skills: ["异形化"], ninpoNames: ["接近战攻击"] },
+  ];
+  const config = { title: "标点与后日谈", genre: "都市悬疑", length: "标准", ending: "苦涩胜利", intensity: 2, seed: "punct-1", protagonistId: "pc1", revealSecrets: false, mode: "实战巡回" };
+  const generated = replayModule.generateReplay(beliefCast, config);
+  assert.doesNotMatch(generated.text, /。。/);
+  assert.doesNotMatch(generated.text, /！。/);
+  const epilogues = generated.scenes.filter((scene) => scene.sceneType === "后日谈");
+  assert.equal(epilogues.length, 2);
+  const quotes = epilogues.map((scene) => scene.lines.find((line) => line.kind === "dialogue")?.text);
+  assert.ok(quotes[0] && quotes[1], "每幕后日谈都应有 PC 台词");
+  assert.notEqual(quotes[0], quotes[1], "不同信念的 PC 后日谈台词不应相同");
+});

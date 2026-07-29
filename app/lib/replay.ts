@@ -156,6 +156,15 @@ const REST_QUOTES = ["伤口不大。比起这个，先核对下一步。", "给
 const MASTER_LINES = ["让他们再快一点。猎物跑得越急，网收得越紧。", "把假情报放出去，我要看看谁先咬钩。", "不必拦截。他们正在替我打开那扇门。", "通知各处：从现在起，退路全部作废。"];
 const ATTACK_CALLS = ["就是现在——", "看好了，这一手没有第二次。", "从影子里，取你的破绽。", "让开，或者被穿过。"];
 const EPILOGUE_WIN_QUOTES = ["下一份委托来之前，先把刀磨好。", "名字留在暗处就好，活着的人记得就行。", "这次的账清了。下次的还没开页。"];
+// 后日谈按信念分池，避免不同 PC 抽到同一句收尾
+const EPILOGUE_BELIEF_QUOTES: Record<string, string[]> = {
+  情: ["还有人记得今晚就好。其余的，风带走吧。", "把没说完的话收好，下次见面再还。"],
+  忠: ["报告写完了。名字照旧，不署。", "命令完成之后，才轮得到自己的事。"],
+  律: ["界线守住了。今晚可以睡个整觉。", "规矩没破，人也没丢。够了。"],
+  我: ["答案是我自己选的，账也记我头上。", "别人怎么写这一晚随意，我记我的版本。"],
+  和: ["都活着回来，就是最好的结算。", "下次换我请客。人齐了再开席。"],
+  凶: ["刀还没钝。下一个对手，快点来。", "赢得不够痛快。留着这口气，下回补上。"],
+};
 const EPILOGUE_LOSE_QUOTES = ["输掉的东西，会由我亲手取回。", "记录留下了，教训也是。", "先低头养伤。抬头的时候，就是回礼的时候。"];
 
 function hashSeed(value: string) {
@@ -182,6 +191,11 @@ function pick<T>(random: Random, items: T[]): T {
   return items[Math.floor(random() * items.length)] ?? items[0];
 }
 
+// 引用使命等已带句读的文本前剥去尾部标点，避免拼出「。。」；剥空时回退占位
+function stripTail(text: string, fallback = "查明事件真相") {
+  const stripped = text.replace(/[。．.！!？?，,、；;：:]+$/u, "");
+  return stripped || fallback;
+}
 function compact(value: string | undefined, fallback: string, limit = 64) {
   const text = value?.replace(/\s+/g, " ").trim() || fallback;
   return text.length > limit ? `${text.slice(0, limit)}……` : text;
@@ -247,7 +261,7 @@ function makeSceneLines(
   };
 
   if (beat === "引子") {
-    add("GM", `${pick(random, details.openings)}。在${location}，${hero.name}收到一份没有署名的委托：${objective}。`);
+    add("GM", `${pick(random, details.openings)}。在${location}，${hero.name}收到一份没有署名的委托：${stripTail(objective)}。`);
     add(hero.name, beliefLine(hero, beat, random));
     add(rival.name, `你们最好快一点。${threat}已经知道这份委托存在。`);
     add("GM", `所有人的终端同时亮起，屏幕上只有一句话：“不要相信第一个找到${clue}的人。”`);
@@ -385,7 +399,7 @@ function generateCampaignReplay(characters: ReplayCharacter[], config: ReplayCon
   for (const pc of pcs) {
     const lines: ReplayLine[] = [];
     const add = makeAdder(`intro-${pc.id}`, lines);
-    add("GM", `${pick(random, details.openings)}。${pc.name}在此接下属于自己的委托：${compact(pc.mission, "查明事件真相")}。`);
+    add("GM", `${pick(random, details.openings)}。${pc.name}在此接下属于自己的委托：${stripTail(compact(pc.mission, "查明事件真相"))}。`);
     add(pc.name, beliefLine(pc, "引子", random));
     add("GM", `${pick(random, details.clues)}被留在${pc.name}手边，像一句迟到的提醒。任务，从此刻开始。`);
     pushScene({ phase: "导入", beat: "引子", sceneType: "导入", spotlightId: pc.id, title: `${pc.name}·${pick(random, INTRO_TITLES)}`, tension: 15 + Math.floor(random() * 16), lines });
@@ -530,7 +544,7 @@ function generateCampaignReplay(characters: ReplayCharacter[], config: ReplayCon
     const lines: ReplayLine[] = [];
     const add = makeAdder(`epilogue-${pc.id}`, lines);
     add("GM", `${pick(random, EPILOGUE_PLACES)}。${pc.name}把这次任务的余波仔细折好、收进行囊。`);
-    add(pc.name, pick(random, config.ending === "任务失败" ? EPILOGUE_LOSE_QUOTES : EPILOGUE_WIN_QUOTES));
+    add(pc.name, pick(random, config.ending === "任务失败" ? EPILOGUE_LOSE_QUOTES : (EPILOGUE_BELIEF_QUOTES[(pc.belief ?? "").trim()] ?? EPILOGUE_WIN_QUOTES)));
     add("GM", `${pc.name}的身影没入人流，像从未在这场事件里出现过。`);
     pushScene({ phase: "结局", beat: "余韵", sceneType: "后日谈", spotlightId: pc.id, title: `后日谈：${pc.name}·${EPILOGUE_TITLES[(epilogueStart + index) % EPILOGUE_TITLES.length]}`, tension: 25 + Math.floor(random() * 16), lines });
   });
