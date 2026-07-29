@@ -897,3 +897,9 @@ textarea { width: 100%; min-height: 72px; padding: 9px 10px; resize: vertical; c
   .declare-button:active, .roll-button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
   @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 }
+
+.dice-maiden { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+.dice-maiden input { flex: 1; min-width: 0; border: 1px solid #afa89a; background: #fffdf6; color: inherit; font-size: 11px; padding: 6px 9px; }
+.dice-maiden button { padding: 6px 14px; border: 1px solid #afa89a; background: transparent; font-size: 11px; cursor: pointer; }
+.dice-maiden button:hover { background: #f1ead8; }
+.dice-maiden-hint { flex-basis: 100%; margin: 0; font-size: 10px; opacity: 0.75; }

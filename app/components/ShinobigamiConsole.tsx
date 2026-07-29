@@ -55,6 +55,7 @@ import type { GmBeat, GmPressure } from "../lib/gm";
 import { askSceneOracle, calculateSpotlightLedger, generateSceneDeck } from "../lib/director";
 import type { SceneCard, SceneCardKind, SceneOracleLikelihood, SceneOracleResult } from "../lib/director";
 import TutorialRunner from "./tutorial/TutorialRunner";
+import { DICE_MAIDEN_HINT, rollDiceCommand } from "../lib/dice";
 
 const STORAGE_KEY = "shinobigami-console-v1";
 const INITIAL_STATE = createInitialGameState();
@@ -82,6 +83,8 @@ export default function ShinobigamiConsole() {
   const [customNinpo, setCustomNinpo] = useState<Ninpo[]>([]);
   const [diceCount, setDiceCount] = useState(2);
   const [tableSafe, setTableSafe] = useState(false);
+  const [diceInput, setDiceInput] = useState("");
+  const [diceHint, setDiceHint] = useState("");
   const [sideView, setSideView] = useState<"log" | "rules" | "assistant">("assistant");
   const [customName, setCustomName] = useState("");
   const [customSkill, setCustomSkill] = useState("刀术");
@@ -1314,7 +1317,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.3</span>
+          <span className="version">MVP 1.4</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1947,6 +1950,11 @@ export default function ShinobigamiConsole() {
             <div className="assistant-summary"><span>当前位置</span><strong>{phase === "导入" ? "开团检查" : phase === "主要" ? `第 ${cycle} 巡 · 第 ${sceneNumber} 场` : `第 ${round} 回合`}</strong><p>提示由当前状态和规则条件生成，不会替 GM 作剧情裁定。</p></div>
           </div> : sideView === "log" ? <>
             <div className="panel-heading"><div><span>SESSION LOG</span><h2>{phase}阶段 · {phase === "主要" ? `第 ${cycle} 巡` : `第 ${round} 回合`}</h2></div><button className="clear-log" onClick={() => setLogs([])}>清空</button></div>
+            <form className="dice-maiden" onSubmit={(event) => { event.preventDefault(); const outcome = rollDiceCommand(diceInput); if (!outcome) { setDiceHint(diceInput.trim() ? `骰娘歪了歪头：这句没看懂。${DICE_MAIDEN_HINT}` : DICE_MAIDEN_HINT); return; } addLog(`[骰娘] ${outcome.text}${outcome.flavor ? `「${outcome.flavor}」` : ""}`, outcome.tone); setDiceInput(""); setDiceHint(""); }}>
+              <input aria-label="骰娘指令" value={diceInput} onChange={(event) => setDiceInput(event.target.value)} placeholder="对骰娘说：2d6+3 · d66 · 3SG>=5 · ET" />
+              <button type="submit">掷</button>
+              {diceHint ? <p className="dice-maiden-hint">{diceHint}</p> : null}
+            </form>
             <div className="log-list">{logs.length ? logs.slice().reverse().map((entry) => <article className={`log-entry ${entry.tone}`} key={entry.id}><span>{phase === "主要" ? `C${entry.cycle ?? cycle}` : `R${entry.round}`}</span><p>{tableSafe ? "桌面安全模式：记录内容已隐藏" : entry.text}</p></article>) : <p className="empty-log">还没有记录。</p>}</div>
           </> : <div className="rules-list">
             <article><span>01</span><div><h3>行为判定</h3><p>目标值＝5＋指定特技到所用已习得特技的格数。默认选择最近特技，玩家也可以主动选择更远的特技代用；目标值不封顶。</p></div></article>
