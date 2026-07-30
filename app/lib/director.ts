@@ -185,3 +185,10 @@ export function calculateSpotlightLedger(characters: Character[], logs: LogEntry
     share: total ? Math.round((entry.scenes / total) * 100) : 0,
   }));
 }
+
+// 供骰娘 .draw 使用：把场景牌库暴露为「牌堆名 → 条目」映射（标题＋正文拼合）
+export function listSceneCardDecks(): Record<string, string[]> {
+  return Object.fromEntries(
+    SCENE_CARD_KINDS.map((kind) => [kind, CARD_LIBRARY[kind].map((card) => `《${card.title}》${card.body}`)]),
+  );
+}
