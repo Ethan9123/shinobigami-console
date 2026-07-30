@@ -25,7 +25,8 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 1\.4/);
+  assert.match(product, /MVP 1\.5/);
+  assert.match(product, /rh 暗骰/);
   assert.match(product, /骰娘/);
   assert.match(product, /快速表骰/);
   assert.match(product, /秘宝/);
