@@ -56,6 +56,9 @@ import { askSceneOracle, calculateSpotlightLedger, generateSceneDeck, listSceneC
 import type { SceneCard, SceneCardKind, SceneOracleLikelihood, SceneOracleResult } from "../lib/director";
 import TutorialRunner from "./tutorial/TutorialRunner";
 import { DICE_MAIDEN_HINT, rollDiceCommand } from "../lib/dice";
+import { LOCALES, LOCALE_STORAGE_KEY, normalizeLocale, t } from "../lib/i18n";
+import type { Locale } from "../lib/i18n";
+import { ACADEMY_LESSONS, ACADEMY_PROGRESS_KEY, GLOSSARY, normalizeAcademyProgress } from "../lib/academy";
 
 const STORAGE_KEY = "shinobigami-console-v1";
 const INITIAL_STATE = createInitialGameState();
@@ -71,7 +74,10 @@ export default function ShinobigamiConsole() {
   const [revealed, setRevealed] = useState(INITIAL_STATE.revealed);
   const [logs, setLogs] = useState<LogEntry[]>(INITIAL_STATE.logs);
   const [history, setHistory] = useState<GameState[]>([]);
-  const [view, setView] = useState<"tutorial" | "prep" | "battle" | "sheet" | "replay" | "director">("tutorial");
+  const [view, setView] = useState<"academy" | "tutorial" | "prep" | "battle" | "sheet" | "replay" | "director">("tutorial");
+  const [locale, setLocale] = useState<Locale>("zh");
+  const [academyDone, setAcademyDone] = useState<string[]>([]);
+  const [openLessonId, setOpenLessonId] = useState<string>("");
   const [targetSkill, setTargetSkill] = useState("刀术");
   const [substituteSkillChoice, setSubstituteSkillChoice] = useState("auto");
   const [modifier, setModifier] = useState(0);
@@ -288,6 +294,12 @@ export default function ShinobigamiConsole() {
 
   useEffect(() => {
     let restored: GameState | null = null;
+    let storedLocale: string | null = null;
+    let storedAcademy: unknown = [];
+    try {
+      storedLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
+      storedAcademy = JSON.parse(localStorage.getItem(ACADEMY_PROGRESS_KEY) ?? "[]");
+    } catch { /* 独立小键损坏时忽略 */ }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) restored = normalizeGameState(JSON.parse(saved));
@@ -295,6 +307,8 @@ export default function ShinobigamiConsole() {
       // Ignore invalid device-local data and start from the safe sample.
     }
     queueMicrotask(() => {
+      setLocale(normalizeLocale(storedLocale));
+      setAcademyDone(normalizeAcademyProgress(storedAcademy));
       if (restored) {
         setCharacters(restored.characters);
         setSelectedId(restored.selectedId);
@@ -1309,6 +1323,19 @@ export default function ShinobigamiConsole() {
     setLastRoll(null);
   };
 
+  const switchLocale = (next: Locale) => {
+    setLocale(next);
+    try { localStorage.setItem(LOCALE_STORAGE_KEY, next); } catch { /* 存储满时忽略 */ }
+  };
+
+  const toggleLessonDone = (lessonId: string) => {
+    setAcademyDone((current) => {
+      const next = current.includes(lessonId) ? current.filter((id) => id !== lessonId) : [...current, lessonId];
+      try { localStorage.setItem(ACADEMY_PROGRESS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   if (!selected) return null;
 
   return (
@@ -1317,35 +1344,37 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.5</span>
+          <span className="version">MVP 1.6</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
-          <button className="ghost-button" onClick={undo} disabled={!history.length}>↶ 撤销</button>
-          <button className="ghost-button" onClick={newRound}>新回合</button>
-          <button className="primary-button" onClick={advanceTurn} disabled={!revealed}>下一位 →</button>
+          <button className="ghost-button" onClick={undo} disabled={!history.length}>{t("chrome.undo", locale)}</button>
+          <button className="ghost-button" onClick={newRound}>{t("chrome.newRound", locale)}</button>
+          <button className="primary-button" onClick={advanceTurn} disabled={!revealed}>{t("chrome.nextActor", locale)}</button>
         </div>
       </header>
 
       <nav className="mode-tabs" aria-label="主要视图">
-        <button className={view === "tutorial" ? "active first-mission-tab" : "first-mission-tab"} onClick={() => setView("tutorial")}>第一次忍务</button>
-        <button className={view === "prep" ? "active" : ""} onClick={() => setView("prep")}>开团准备</button>
-        <button className={view === "replay" ? "active replay-tab" : "replay-tab"} onClick={() => setView("replay")}>Replay 工房</button>
-        <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>战斗控制台</button>
-        <button className={view === "director" ? "active" : ""} onClick={() => setView("director")}>场景导演</button>
-        <button className={view === "sheet" ? "active" : ""} onClick={() => setView("sheet")}>角色工作台</button>
+        <button className={view === "academy" ? "active academy-tab" : "academy-tab"} onClick={() => setView("academy")}>{t("nav.academy", locale)}</button>
+        <button className={view === "tutorial" ? "active first-mission-tab" : "first-mission-tab"} onClick={() => setView("tutorial")}>{t("nav.tutorial", locale)}</button>
+        <button className={view === "prep" ? "active" : ""} onClick={() => setView("prep")}>{t("nav.prep", locale)}</button>
+        <button className={view === "replay" ? "active replay-tab" : "replay-tab"} onClick={() => setView("replay")}>{t("nav.replay", locale)}</button>
+        <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>{t("nav.battle", locale)}</button>
+        <button className={view === "director" ? "active" : ""} onClick={() => setView("director")}>{t("nav.director", locale)}</button>
+        <button className={view === "sheet" ? "active" : ""} onClick={() => setView("sheet")}>{t("nav.sheet", locale)}</button>
         <div className="phase-tabs" aria-label="团务阶段">
-          {(["导入", "主要", "高潮"] as Phase[]).map((item) => <button key={item} className={phase === item ? "active" : ""} onClick={() => changePhase(item)}>{item}</button>)}
+          {(["导入", "主要", "高潮"] as Phase[]).map((item, index) => <button key={item} className={phase === item ? "active" : ""} onClick={() => changePhase(item)}>{t(["phase.intro", "phase.main", "phase.climax"][index], locale)}</button>)}
         </div>
         <div className="save-actions">
-          <button className={tableSafe ? "safe-active" : ""} onClick={() => setTableSafe((value) => !value)}>{tableSafe ? "桌面安全" : "GM 视图"}</button>
-          <button onClick={exportSave}>导出存档</button><button onClick={() => importRef.current?.click()}>导入</button>
+          <div className="locale-switch" role="group" aria-label={t("chrome.language", locale)}>{LOCALES.map((item) => <button key={item.id} className={locale === item.id ? "active" : ""} onClick={() => switchLocale(item.id)}>{item.label}</button>)}</div>
+          <button className={tableSafe ? "safe-active" : ""} onClick={() => setTableSafe((value) => !value)}>{tableSafe ? t("chrome.tableSafe", locale) : t("chrome.gmView", locale)}</button>
+          <button onClick={exportSave}>{t("chrome.export", locale)}</button><button onClick={() => importRef.current?.click()}>{t("chrome.import", locale)}</button>
           <input ref={importRef} type="file" accept="application/json" onChange={importSave} hidden />
         </div>
       </nav>
 
-      <div className={`workspace ${view === "tutorial" ? "tutorial-workspace" : ""}`}>
-        {view !== "tutorial" && <aside className="character-rail panel">
+      <div className={`workspace ${view === "tutorial" || view === "academy" ? "tutorial-workspace" : ""}`}>
+        {view !== "tutorial" && view !== "academy" && <aside className="character-rail panel">
           <div className="panel-heading"><div><span>CHARACTERS</span><h2>登场角色</h2></div><span className="counter">{characters.length}</span></div>
           <div className="character-list">
             {characters.map((character) => {
@@ -1366,7 +1395,52 @@ export default function ShinobigamiConsole() {
         </aside>}
 
         <section className="main-stage">
-          {view === "tutorial" ? (
+          {view === "academy" ? (
+            <section className="panel academy-panel">
+              <div className="panel-heading"><div><span>{t("academy.kicker", locale)}</span><h2>{t("academy.title", locale)}</h2></div><span className="selection-count">{t("academy.progress", locale)} {academyDone.length}/{ACADEMY_LESSONS.length}</span></div>
+              <p className="academy-subtitle">{t("academy.subtitle", locale)}</p>
+              <div className="academy-welcome">
+                <h3>{t("welcome.title", locale)}</h3>
+                <ul>
+                  <li>{t("welcome.pathAcademy", locale)}</li>
+                  <li><button className="inline-link" onClick={() => setView("tutorial")}>{t("welcome.pathTutorial", locale)}</button></li>
+                  <li><button className="inline-link" onClick={() => setView("prep")}>{t("welcome.pathPro", locale)}</button></li>
+                </ul>
+              </div>
+              <div className="academy-lessons">
+                {ACADEMY_LESSONS.map((lesson, index) => {
+                  const open = openLessonId === lesson.id;
+                  const done = academyDone.includes(lesson.id);
+                  return (
+                    <article key={lesson.id} className={`academy-lesson ${done ? "done" : ""} ${open ? "open" : ""}`}>
+                      <button className="academy-lesson-head" onClick={() => setOpenLessonId(open ? "" : lesson.id)}>
+                        <span className="lesson-no">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="lesson-title">{lesson.title[locale]}</span>
+                        <span className="lesson-meta">{done ? `✓ ${t("academy.done", locale)}` : `${lesson.minutes} min`}</span>
+                      </button>
+                      {open ? <div className="academy-lesson-body">
+                        <p className="lesson-goal">{lesson.goal[locale]}</p>
+                        {lesson.body.map((paragraph, at) => <p key={at}>{paragraph[locale]}</p>)}
+                        {lesson.points?.length ? <ul>{lesson.points.map((point, at) => <li key={at}>{point[locale]}</li>)}</ul> : null}
+                        <div className="lesson-actions">
+                          {lesson.tryIt ? <button className="primary-button" onClick={() => setView(lesson.tryIt!.view)}>{lesson.tryIt.label[locale]}</button> : null}
+                          <button className="ghost-button" onClick={() => toggleLessonDone(lesson.id)}>{done ? t("academy.markUndone", locale) : t("academy.markDone", locale)}</button>
+                        </div>
+                      </div> : null}
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="academy-glossary">
+                <h3>{t("academy.glossary", locale)}</h3>
+                <p>{t("academy.glossaryNote", locale)}</p>
+                <div className="glossary-table" role="table">
+                  <div className="glossary-row glossary-head" role="row"><span>中文</span><span>English</span><span>日本語</span></div>
+                  {GLOSSARY.map((entry) => <div className="glossary-row" role="row" key={entry.zh}><span>{entry.zh}</span><span>{entry.en}</span><span>{entry.ja}</span></div>)}
+                </div>
+              </div>
+            </section>
+          ) : view === "tutorial" ? (
             <TutorialRunner
               state={tutorial}
               tableSafe={tableSafe}

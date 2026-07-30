@@ -6,6 +6,8 @@ test("product page replaces the starter preview", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
   const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const chrome = await readFile(new URL("../app/lib/i18n.ts", import.meta.url), "utf8");
+  const surface = product + chrome;
   const tutorial = await readFile(new URL("../app/components/tutorial/TutorialRunner.tsx", import.meta.url), "utf8");
   const tutorialData = await readFile(new URL("../app/lib/tutorial.ts", import.meta.url), "utf8");
 
@@ -17,7 +19,7 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /忍法配置/);
   assert.match(product, /规则速查/);
   assert.match(product, /累计花费/);
-  assert.match(product, /场景导演/);
+  assert.match(surface, /场景导演/);
   assert.match(product, /人物关系与情报流向/);
   assert.match(product, /纯文字角色卡导入/);
   assert.match(product, /成功率/);
@@ -25,15 +27,17 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 1\.5/);
+  assert.match(product, /MVP 1\.6/);
+  assert.match(product, /nav\.academy/);
+  assert.match(product, /LOCALES/);
   assert.match(product, /rh 暗骰/);
   assert.match(product, /骰娘/);
   assert.match(product, /快速表骰/);
   assert.match(product, /秘宝/);
   assert.match(product, /实战巡回/);
-  assert.match(product, /角色工作台/);
-  assert.match(product, /跑团记录台/);
-  assert.match(product, /自动 Replay 工房/);
+  assert.match(surface, /角色工作台/);
+  assert.match(surface, /跑团记录台/);
+  assert.match(surface, /自动 Replay 工房/);
   assert.match(product, /张力曲线/);
   assert.match(product, /送入跑团记录台/);
   assert.match(product, /已装备忍法清单/);
@@ -47,7 +51,7 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /场景牌桌/);
   assert.match(product, /局势神谕/);
   assert.match(product, /镜头账本/);
-  assert.match(product + tutorial, /第一次忍务/);
+  assert.match(surface + tutorial, /第一次忍务/);
   assert.match(tutorial + tutorialData, /雨夜零号线/);
   assert.match(tutorial, /安全工具/);
   assert.doesNotMatch(page + layout, /codex-preview|SkeletonPreview/);
