@@ -21,7 +21,7 @@ export type DiceContext = {
 
 // 感情表六组（改订版名称，索引 0~5 对应 1D6；与 rules.ts 保持一致，因独立转译约束在本文件重复一份）
 const EMOTION_PAIRS: Array<[string, string]> = [
-  ["共感", "不信"],
+  ["共鸣", "猜疑"],
   ["友情", "愤怒"],
   ["爱情", "嫉妒"],
   ["忠诚", "轻蔑"],

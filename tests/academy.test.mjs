@@ -38,8 +38,29 @@ test("glossary uses confirmed official English terms", () => {
   assert.match(byZh["感情"].en, /Emotional Bond/);
   assert.equal(byZh["布局"].ja, "プロット（値）");
   assert.equal(byZh["变调"].en, "Status Ailment");
+  assert.equal(byZh["秘宝"].en, "Prize");
+  assert.equal(byZh["秘宝"].ja, "プライズ");
+  assert.equal(byZh["巡"].en, "Cycle");
+  assert.equal(byZh["剧情场景"].en, "Drama Scene");
+  assert.equal(byZh["剧情场景"].ja, "ドラマシーン");
   for (const entry of academy.GLOSSARY) {
     assert.ok(entry.zh && entry.en && entry.ja, `${entry.zh} 术语三语不全`);
+  }
+});
+
+test("lesson text drops wording corrected against rulebook v1.51 (zh)", () => {
+  const banned = ["主动摊牌", "无条件命中", "每场景一次", "戏剧场景", "战利品"];
+  const zhChunks = [];
+  for (const lesson of academy.ACADEMY_LESSONS) {
+    zhChunks.push(lesson.title.zh, lesson.goal.zh);
+    for (const paragraph of lesson.body) zhChunks.push(paragraph.zh);
+    for (const point of lesson.points ?? []) zhChunks.push(point.zh);
+    if (lesson.tryIt) zhChunks.push(lesson.tryIt.label.zh);
+  }
+  for (const entry of academy.GLOSSARY) zhChunks.push(entry.zh);
+  const allZh = zhChunks.join("\n");
+  for (const phrase of banned) {
+    assert.ok(!allZh.includes(phrase), `课文/术语表 zh 字段不应再出现「${phrase}」`);
   }
 });
 

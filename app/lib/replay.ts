@@ -125,7 +125,7 @@ const SCENE_TITLES: Record<ReplayBeat, string[]> = {
 const NUMERALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 
 // 改订版感情名称，索引 0~5 对应 1D6；每项 [正面, 负面]。
-const EMOTION_PAIRS: Array<[string, string]> = [["共感", "不信"], ["友情", "愤怒"], ["爱情", "嫉妒"], ["忠诚", "轻蔑"], ["憧憬", "自卑"], ["狂信", "杀意"]];
+const EMOTION_PAIRS: Array<[string, string]> = [["共鸣", "猜疑"], ["友情", "愤怒"], ["爱情", "嫉妒"], ["忠诚", "轻蔑"], ["憧憬", "自卑"], ["狂信", "杀意"]];
 
 const HENCHOU_POOL = ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒"];
 
@@ -328,7 +328,7 @@ function campaignSceneHeading(scene: ReplayScene, cycleSceneNo: number) {
   if (scene.sceneType === "后日谈") return scene.title;
   if (scene.sceneType === "尾声") return `尾声：${scene.title}`;
   const cycle = scene.cycle ?? 1;
-  return `第${NUMERALS[cycle - 1] ?? cycle}循环·场景${NUMERALS[cycleSceneNo - 1] ?? cycleSceneNo}：${scene.title}`;
+  return `第${NUMERALS[cycle - 1] ?? cycle}巡·场景${NUMERALS[cycleSceneNo - 1] ?? cycleSceneNo}：${scene.title}`;
 }
 
 export function formatReplayText(replay: Omit<GeneratedReplay, "text">) {
@@ -446,12 +446,15 @@ function generateCampaignReplay(characters: ReplayCharacter[], config: ReplayCon
         add(partner.name, pick(random, BOND_QUOTES));
         add("GM", `${spotlight.name}进行感情判定。`);
         const success = logRoll(add, spotlight.name, 6);
-        const face = d6();
-        counters.rolls += 1;
-        const pair = EMOTION_PAIRS[face - 1];
-        add("SYSTEM", `感情表：1D6 ＞ ${face}，${pair[0]}／${pair[1]}`, "roll");
-        const spotSide = pair[random() < 0.7 ? 0 : 1];
-        const partnerSide = pair[random() < 0.7 ? 0 : 1];
+        // 规则：双方各掷一次感情表，可能掷出不同感情对，正负各自决定
+        const spotFace = d6();
+        const partnerFace = d6();
+        counters.rolls += 2;
+        const spotPair = EMOTION_PAIRS[spotFace - 1];
+        const partnerPair = EMOTION_PAIRS[partnerFace - 1];
+        add("SYSTEM", `感情表：${spotlight.name} 1D6 ＞ ${spotFace}，${spotPair[0]}／${spotPair[1]}；${partner.name} 1D6 ＞ ${partnerFace}，${partnerPair[0]}／${partnerPair[1]}`, "roll");
+        const spotSide = spotPair[random() < 0.7 ? 0 : 1];
+        const partnerSide = partnerPair[random() < 0.7 ? 0 : 1];
         add("GM", `${success ? "话音落定" : "沉默过后，反而是对方先递出了话头"}。${spotlight.name}对${partner.name}缔结感情【${spotSide}】，${partner.name}对${spotlight.name}回以【${partnerSide}】。`);
       } else {
         add("GM", `${location}。${spotlight.name}退到暗处，处理累积的伤势与消耗。`);

@@ -79,7 +79,7 @@ test("campaign mode reproduces identical output for the same seed", () => {
   assert.ok(first.text.includes("解放奥义【月下无影】"));
   assert.ok(first.text.includes("奥义破解"));
   assert.ok(first.text.includes("获得变调【"));
-  assert.ok(first.text.includes("循环·场景"));
+  assert.ok(first.text.includes("巡·场景"));
 });
 
 test("campaign mode gives every PC a spotlight and covers key scene types", () => {

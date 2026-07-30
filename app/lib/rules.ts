@@ -3,12 +3,12 @@ export const FIELD_NAMES = ["器术", "体术", "忍术", "谋术", "战术", "�
 export type FieldName = (typeof FIELD_NAMES)[number];
 
 export const SKILL_TABLE: Record<FieldName, string[]> = {
-  器术: ["机关术", "火术", "水术", "针术", "藏兵术", "衣装术", "绳术", "登术", "拷问术", "坏器术", "掘削术"],
+  器术: ["机关术", "火术", "水术", "针术", "藏兵术", "衣装术", "绳术", "登术", "拷问术", "坏器术", "挖掘术"],
   体术: ["骑乘术", "炮术", "手里剑术", "手练", "身体操术", "步法", "走法", "飞术", "骨法术", "刀术", "怪力"],
   忍术: ["生存术", "潜伏术", "遁走术", "盗听术", "腹语术", "隐形术", "变装术", "香术", "分身术", "隐蔽术", "第六感"],
-  谋术: ["医术", "毒术", "陷阱术", "调查术", "诈术", "对人术", "游艺", "色诱术", "傀儡术", "流言术", "经济力"],
+  谋术: ["医术", "毒术", "陷阱术", "调查术", "诈术", "对人术", "游艺", "女忍术", "傀儡术", "流言术", "经济力"],
   战术: ["兵粮术", "鸟兽术", "野战术", "地利", "意气", "用兵术", "记忆术", "见敌术", "暗号术", "传达术", "人脉"],
-  妖术: ["异形化", "召唤术", "死灵术", "结界术", "封术", "言灵术", "幻术", "瞳术", "千里眼术", "凭依术", "咒术"],
+  妖术: ["异形化", "召唤术", "死灵术", "结界术", "封术", "言灵术", "幻术", "瞳术", "千里眼之术", "凭依术", "咒术"],
 };
 
 export type Ninpo = {
@@ -46,7 +46,7 @@ export const COMMON_NINPO: Ninpo[] = [
 export const CONDITIONS = ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒", "逆止"];
 
 export const EMOTION_PAIRS = [
-  ["共感", "不信"],
+  ["共鸣", "猜疑"],
   ["友情", "愤怒"],
   ["爱情", "嫉妒"],
   ["忠诚", "轻蔑"],
@@ -111,8 +111,8 @@ export function checkFumbleLine({
   plot?: number | null;
   supportCost?: number;
 } = {}) {
-  if (inAttackWindow && plot != null) return Math.max(1, Math.min(12, Math.floor(plot)));
-  return Math.max(1, Math.min(12, 2 + Math.max(0, Math.floor(supportCost))));
+  if (inAttackWindow && plot != null) return Math.max(1, Math.min(11, Math.floor(plot)));
+  return Math.max(1, Math.min(11, 2 + Math.max(0, Math.floor(supportCost))));
 }
 
 export type CheckOdds = {
@@ -172,10 +172,12 @@ const SKILL_ALIASES: Record<string, string> = {
   登術: "登术",
   拷問術: "拷问术",
   壊器術: "坏器术",
-  掘削術: "掘削术",
+  掘削術: "挖掘术",
+  掘削术: "挖掘术",
   騎乗術: "骑乘术",
   砲術: "炮术",
   手裏剣術: "手里剑术",
+  手練: "手练",
   身体操術: "身体操术",
   歩法: "步法",
   走法: "走法",
@@ -189,6 +191,7 @@ const SKILL_ALIASES: Record<string, string> = {
   腹話術: "腹语术",
   隠形術: "隐形术",
   変装術: "变装术",
+  香術: "香术",
   分身の術: "分身术",
   隠蔽術: "隐蔽术",
   罠術: "陷阱术",
@@ -198,7 +201,9 @@ const SKILL_ALIASES: Record<string, string> = {
   詐術: "诈术",
   対人術: "对人术",
   遊芸: "游艺",
-  九ノ一の術: "色诱术",
+  九ノ一の術: "女忍术",
+  くノ一の術: "女忍术",
+  色诱术: "女忍术",
   傀儡の術: "傀儡术",
   流言の術: "流言术",
   経済力: "经济力",
@@ -206,6 +211,7 @@ const SKILL_ALIASES: Record<string, string> = {
   鳥獣術: "鸟兽术",
   野戦術: "野战术",
   地の利: "地利",
+  意気: "意气",
   用兵術: "用兵术",
   記憶術: "记忆术",
   見敵術: "见敌术",
@@ -220,7 +226,8 @@ const SKILL_ALIASES: Record<string, string> = {
   言霊術: "言灵术",
   幻術: "幻术",
   瞳術: "瞳术",
-  千里眼の術: "千里眼术",
+  千里眼の術: "千里眼之术",
+  千里眼术: "千里眼之术",
   憑依術: "凭依术",
   呪術: "咒术",
 };

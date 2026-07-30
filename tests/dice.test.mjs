@@ -86,7 +86,7 @@ test("interop palette lines paste as-is: trailing labels and notes are ignored",
   const inline = dice.rollDiceCommand("3SG@12#2>=9【手里剑】", fakeRng([6, 5, 2]));
   assert.match(inline.text, /取高 6\+5＝11/);
   const et = dice.rollDiceCommand("ET 感情表", fakeRng([1]));
-  assert.match(et.text, /共感／不信/);
+  assert.match(et.text, /共鸣／不信|共鸣／猜疑/);
   const ft = dice.rollDiceCommand("FT ファンブル表", fakeRng([3]));
   assert.match(ft.text, /大失败表出目/);
 });
