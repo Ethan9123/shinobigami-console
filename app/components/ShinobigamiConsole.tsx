@@ -91,6 +91,7 @@ export default function ShinobigamiConsole() {
   const [tableSafe, setTableSafe] = useState(false);
   const [diceInput, setDiceInput] = useState("");
   const [diceHint, setDiceHint] = useState("");
+  const [supportCostInput, setSupportCostInput] = useState(0);
   const [sideView, setSideView] = useState<"log" | "rules" | "assistant">("assistant");
   const [customName, setCustomName] = useState("");
   const [customSkill, setCustomSkill] = useState("刀术");
@@ -197,7 +198,7 @@ export default function ShinobigamiConsole() {
   );
   const currentActor = battleOrder.length ? battleOrder[turnIndex % battleOrder.length] : null;
   const inAttackWindow = view === "battle" && revealed;
-  const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected?.plot });
+  const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected?.plot, supportCost: inAttackWindow ? 0 : supportCostInput });
   const odds = useMemo(
     () => calculateCheckOdds(diceCount, check.target, modifier, 12, fumbleLine, check.criticalOnly),
     [check.criticalOnly, check.target, diceCount, modifier, fumbleLine],
@@ -645,7 +646,13 @@ export default function ShinobigamiConsole() {
 
   const markEmotionUsed = (emotionId: string) => {
     checkpoint();
-    setEmotions((items) => items.map((emotion) => emotion.id === emotionId ? { ...emotion, used: !emotion.used } : emotion));
+    setEmotions((items) => {
+      const picked = items.find((emotion) => emotion.id === emotionId);
+      if (!picked) return items;
+      // 规则：复数感情在同一巡／回合内也只能使用一次感情修正——按持有者整体加锁/解锁
+      const nextUsed = !picked.used;
+      return items.map((emotion) => emotion.fromId === picked.fromId ? { ...emotion, used: nextUsed } : emotion);
+    });
   };
 
   const gainIntel = () => {
@@ -972,7 +979,7 @@ export default function ShinobigamiConsole() {
     const kept = [...dice].sort((a, b) => b - a).slice(0, 2);
     const raw = kept[0] + kept[1];
     const total = raw + modifier;
-    const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected.plot });
+    const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected.plot, supportCost: inAttackWindow ? 0 : supportCostInput });
     let result = !check.criticalOnly && total >= check.target ? "成功" : "失败";
     if (raw >= 12) result = "大成功";
     if (raw <= fumbleLine) result = inAttackWindow ? "大失败／逆止" : "大失败";
@@ -983,7 +990,12 @@ export default function ShinobigamiConsole() {
     const skillPhrase = check.skill === targetSkill ? `以${check.skill}判定` : `以${check.skill}代用${targetSkill}`;
     addLog(`[${command}] ${selected.name} ${skillPhrase}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}。`, result.includes("失败") ? "danger" : "roll");
     if (result.includes("逆止") && !selected.conditions.includes("逆止")) {
-      updateCharacter(selected.id, { conditions: [...selected.conditions, "逆止"] });
+      if (samePlotBatch.length > 1) {
+        // 同时攻击：伤害、逆止与变调须待同布局全员完成攻击处理后统一应用
+        addLog(`${selected.name} 的【逆止】暂缓生效：待布局 ${selected.plot} 的同速角色全部完成攻击处理后，再统一应用（届时手动点选逆止）。`, "system");
+      } else {
+        updateCharacter(selected.id, { conditions: [...selected.conditions, "逆止"] });
+      }
     }
   };
 
@@ -1007,8 +1019,16 @@ export default function ShinobigamiConsole() {
     const problems: string[] = [];
     if (distance != null && distance > selectedNinpo.range) problems.push(`距离 ${distance} 超过忍法距离 ${selectedNinpo.range}`);
     const nextCost = (selected.spentCost ?? 0) + selectedNinpo.cost;
-    if (selected.plot != null && nextCost > selected.plot) problems.push(`累计花费 ${nextCost} 超过布局 ${selected.plot}`);
-    if (selectedNinpo.kind === "支援" && (selected.usedNinpoIds ?? []).includes(selectedNinpo.id)) problems.push("同名支援忍法本回合已经使用");
+    // 布局时（未公开）使用支援忍法：花费可超过布局值，但合计不得达到 7，且此后本回合不能再用带花费忍法（由 GM 把关）
+    const plotWindowSupport = !revealed && selectedNinpo.kind === "支援";
+    if (selected.plot != null && nextCost > selected.plot) {
+      if (plotWindowSupport && nextCost < 7) {
+        addLog(`${selected.name} 在布局时使用【${selectedNinpo.name}】：花费合计 ${nextCost} 超过布局值（规则允许，上限 7），此回合不能再使用带花费的忍法。`, "system");
+      } else {
+        problems.push(plotWindowSupport ? `布局时支援忍法花费合计 ${nextCost} 不得达到 7` : `累计花费 ${nextCost} 超过布局 ${selected.plot}`);
+      }
+    }
+    if ((selectedNinpo.kind === "支援" || selectedNinpo.kind === "攻击") && (selected.usedNinpoIds ?? []).includes(selectedNinpo.id)) problems.push(`同名${selectedNinpo.kind}忍法本回合已经使用`);
     if (problems.length) {
       addLog(`${selected.name} 无法对 ${target.name} 使用【${selectedNinpo.name}】：${problems.join("；")}。`, "danger");
       return;
@@ -1017,7 +1037,7 @@ export default function ShinobigamiConsole() {
     if (selectedNinpo.skill !== "自由") setTargetSkill(selectedNinpo.skill);
     updateCharacter(selected.id, {
       spentCost: nextCost,
-      usedNinpoIds: selectedNinpo.kind === "支援" ? [...(selected.usedNinpoIds ?? []), selectedNinpo.id] : selected.usedNinpoIds,
+      usedNinpoIds: [...(selected.usedNinpoIds ?? []), selectedNinpo.id],
     });
     setResolution({
       id: uid("resolution"),
@@ -1551,7 +1571,7 @@ export default function ShinobigamiConsole() {
                 <section className="panel replay-curve-panel">
                   <div className="replay-result-heading">
                     <div><span>TENSION MAP</span><h2>张力曲线</h2><p>低谷不是断线：假胜利让观众喘息，随后用反转抬高风险。</p></div>
-                    <div className="replay-stats"><span><b>{replay.stats.sceneCount}</b> 幕</span>{replay.stats.cycleCount ? <span><b>{replay.stats.cycleCount}</b> 循环</span> : null}<span><b>{replay.stats.lineCount}</b> 行</span><span><b>{replay.stats.rollCount}</b> 次判定</span><span><b>{replay.stats.peakTension}</b> 峰值</span></div>
+                    <div className="replay-stats"><span><b>{replay.stats.sceneCount}</b> 幕</span>{replay.stats.cycleCount ? <span><b>{replay.stats.cycleCount}</b> 巡</span> : null}<span><b>{replay.stats.lineCount}</b> 行</span><span><b>{replay.stats.rollCount}</b> 次判定</span><span><b>{replay.stats.peakTension}</b> 峰值</span></div>
                   </div>
                   <div className="replay-curve" aria-label="Replay 张力曲线">
                     {replay.scenes.map((scene) => <div key={scene.id} className={scene.beat === "高潮" ? "peak" : ""}><b>{scene.tension}</b><i style={{ height: `${scene.tension}%` }} /><span>{scene.sceneType ?? scene.beat}</span></div>)}
@@ -1561,7 +1581,7 @@ export default function ShinobigamiConsole() {
 
                 <section className="replay-scenes" aria-label="自动生成的 Replay 场景">
                   {replay.scenes.map((scene) => <article className={`panel replay-scene-card beat-${scene.beat}`} key={scene.id}>
-                    <header><span>{scene.sceneType ? (scene.cycle ? `第${scene.cycle}循环 · ${scene.sceneType}场景` : `${scene.sceneType}场景`) : `${scene.phase} · ${scene.beat}`}</span><h3>{String(scene.index).padStart(2, "0")} / {scene.title}</h3><div><b>{scene.tension}</b><small>TENSION</small></div></header>
+                    <header><span>{scene.sceneType ? (scene.cycle ? `第${scene.cycle}巡 · ${scene.sceneType}场景` : `${scene.sceneType}场景`) : `${scene.phase} · ${scene.beat}`}</span><h3>{String(scene.index).padStart(2, "0")} / {scene.title}</h3><div><b>{scene.tension}</b><small>TENSION</small></div></header>
                     <div className="replay-lines">{scene.lines.map((line) => <p className={line.kind} key={line.id}><strong>{line.speaker}</strong><span>{tableSafe && line.kind === "reveal" ? "桌面安全模式：秘密揭示已隐藏。" : line.text}</span></p>)}</div>
                   </article>)}
                 </section>
@@ -1619,6 +1639,7 @@ export default function ShinobigamiConsole() {
                   </div>
                   <div className="dice-pool-control"><span>骰池</span>{[2, 3, 4, 5, 6].map((count) => <button key={count} className={diceCount === count ? "active" : ""} onClick={() => setDiceCount(count)}>{count}D</button>)}<em>多骰取高 2</em></div>
                   <div className="modifier-control"><button onClick={() => setModifier((value) => value - 1)}>−</button><span>修正 <strong>{modifier > 0 ? `+${modifier}` : modifier}</strong></span><button onClick={() => setModifier((value) => value + 1)}>＋</button></div>
+                  {!inAttackWindow ? <div className="modifier-control"><button onClick={() => setSupportCostInput((value) => Math.max(0, value - 1))}>−</button><span>支援忍法花费 <strong>{supportCostInput}</strong>{supportCostInput ? `（大失败线 ${fumbleLine}）` : ""}</span><button onClick={() => setSupportCostInput((value) => Math.min(9, value + 1))}>＋</button></div> : null}
                   <button className="roll-button" onClick={rollCheck}><span>{diceCount > 2 ? `${diceCount}SG` : "2SG"} · BCDICE STYLE</span>投掷判定</button>
                   {lastRoll && <div className={`roll-result ${lastRoll.result.includes("失败") ? "failed" : "passed"}`}><span>{lastRoll.dice.join(" · ")}{lastRoll.dice.length > 2 ? ` → ${lastRoll.kept.join("+")}` : ""}</span><strong>{lastRoll.total}</strong><em>{lastRoll.result}</em></div>}
                   <div className="dice-pool-control quick-tables"><span>快速表骰</span><button onClick={rollEmotionTable}>ET 感情表</button><button onClick={() => rollTableHint("FT", "大失败表")}>FT 出目</button><button onClick={() => rollTableHint("WT", "变调表")}>WT 出目</button><button onClick={() => addLog(`[1D6] 素点：${rollD6()}。`, "roll")}>1D6</button><em>ET 给出感情对；FT／WT 只给出目，效果请对照规则书</em></div>
@@ -2035,7 +2056,7 @@ export default function ShinobigamiConsole() {
             <article><span>02</span><div><h3>特殊骰点</h3><p>大成功与大失败只看修正前骰点。通常 12 为大成功、2 为大失败；战斗从攻击处理到回合结束，大失败值改为当前布局值并造成逆止。</p></div></article>
             <article><span>03</span><div><h3>布局与行动</h3><p>秘密选择 1–6 后同时公开，由高到低行动；高布局更快，但大失败风险也更高。</p></div></article>
             <article><span>04</span><div><h3>距离与花费</h3><p>双方布局差不得超过忍法距离；同回合忍法累计花费不得超过自己的布局值。</p></div></article>
-            <article><span>05</span><div><h3>伤害</h3><p>接近战随机失去分野生命力；射击战由受伤者选择；集体战通常获得变调。</p></div></article>
+            <article><span>05</span><div><h3>伤害</h3><p>接近战随机失去分野生命力；射击战由受伤者选择；集团战通常获得变调。</p></div></article>
             <article><span>06</span><div><h3>BCDice 风格</h3><p>本工具日志记录 SG 命令。额外骰池采用 nSG 的“投 n 颗、取高 2 颗”方式。</p></div></article>
             <article><span>07</span><div><h3>情报共享</h3><p>当你抱有感情的角色直接获得情报时，你自动获得同一情报；共享所得不会继续触发连锁共享。</p></div></article>
             <article><span>08</span><div><h3>巡与场景</h3><p>主要阶段每位 PC 每巡有一次主要行动。剧情场景从回复、情报、感情中择一；GM 还可按剧本设置计划判定。辅助判定是 GM 设置的简单行动，不消耗主要行动。</p></div></article>

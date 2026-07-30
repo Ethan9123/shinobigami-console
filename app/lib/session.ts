@@ -260,6 +260,17 @@ function normalizeBackgroundItems(value: unknown): BackgroundItem[] {
   });
 }
 
+// v1.6 及更早存档使用的特技旧译名 → 现行译名；载入时自动迁移
+const LEGACY_SKILL_RENAMES: Record<string, string> = {
+  掘削术: "挖掘术",
+  色诱术: "女忍术",
+  千里眼术: "千里眼之术",
+};
+
+function migrateSkillName(name: string) {
+  return LEGACY_SKILL_RENAMES[name] ?? name;
+}
+
 function normalizeCharacter(value: unknown, index: number): Character {
   const raw = record(value);
   const lifeRaw = record(raw.life);
@@ -290,7 +301,7 @@ function normalizeCharacter(value: unknown, index: number): Character {
     backgrounds: text(raw.backgrounds),
     backgroundItems: normalizeBackgroundItems(raw.backgroundItems),
     portrait: text(raw.portrait),
-    ougiSkill: text(raw.ougiSkill),
+    ougiSkill: migrateSkillName(text(raw.ougiSkill)),
     ougiEffect: text(raw.ougiEffect),
     ougiStrength: text(raw.ougiStrength),
     ougiWeakness: text(raw.ougiWeakness),
@@ -298,7 +309,7 @@ function normalizeCharacter(value: unknown, index: number): Character {
     active: raw.active !== false,
     extraLife: number(raw.extraLife, 0, 0, 99),
     life: baseLife,
-    skills: stringList(raw.skills),
+    skills: stringList(raw.skills).map(migrateSkillName),
     ninpoIds: stringList(raw.ninpoIds).filter((id) => id !== "emotion"),
     conditions: stringList(raw.conditions).map((condition) => condition === "失忆" ? "忘却" : condition),
     spentCost: number(raw.spentCost, 0, 0, 99),

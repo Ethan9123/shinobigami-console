@@ -34,9 +34,16 @@ test("fumble line changes only in the attack-processing window", () => {
   assert.equal(rules.checkFumbleLine({ supportCost: 2 }), 4);
 });
 
+test("fumble line never reaches 12 in either branch", () => {
+  assert.equal(rules.checkFumbleLine({ supportCost: 9 }), 11);
+  assert.equal(rules.checkFumbleLine({ supportCost: 99 }), 11);
+  assert.equal(rules.checkFumbleLine({ inAttackWindow: true, plot: 12 }), 11);
+  assert.equal(rules.checkFumbleLine({ inAttackWindow: true, plot: 99 }), 11);
+});
+
 test("revised condition and emotion terminology matches the current tables", () => {
   assert.deepEqual(rules.CONDITIONS.slice(0, 6), ["故障", "麻痹", "重伤", "行踪不明", "忘却", "诅咒"]);
-  assert.deepEqual(rules.EMOTION_PAIRS[0], ["共感", "不信"]);
+  assert.deepEqual(rules.EMOTION_PAIRS[0], ["共鸣", "猜疑"]);
   assert.equal(rules.COMMON_NINPO.some((item) => item.id === "emotion"), false, "emotion modifier is a system rule, not a ninpo");
 });
 
@@ -54,6 +61,17 @@ test("plain-text importer recognizes local workbook style and Japanese skills", 
   assert.equal(parsed.rank, "中忍");
   assert.deepEqual(parsed.skills.sort(), ["刀术", "见敌术"]);
   assert.deepEqual(parsed.ninpoIds, ["close"]);
+});
+
+test("importer resolves renamed skills from new names, legacy names, and Japanese aliases", () => {
+  const renamed = rules.parseCharacterText("特技：挖掘术、女忍术、千里眼之术");
+  assert.deepEqual(renamed.skills.sort(), ["千里眼之术", "女忍术", "挖掘术"]);
+
+  const legacy = rules.parseCharacterText("特技：掘削术、色诱术、千里眼术");
+  assert.deepEqual(legacy.skills.sort(), ["千里眼之术", "女忍术", "挖掘术"]);
+
+  const japanese = rules.parseCharacterText("特技：手練、香術、意気、くノ一の術");
+  assert.deepEqual(japanese.skills.sort(), ["女忍术", "意气", "手练", "香术"]);
 });
 
 test("importer parses sub-faction, condition, style and structured background rows", () => {

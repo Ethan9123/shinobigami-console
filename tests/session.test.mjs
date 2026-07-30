@@ -74,6 +74,26 @@ test("legacy v7 save migrates losslessly to the v0.8 treasure schema", () => {
   assert.deepEqual(migrated.characters[0].conditions, ["忘却"]);
 });
 
+test("legacy skill names in saves migrate to the current terminology", () => {
+  const migrated = session.normalizeGameState({
+    characters: [{
+      id: "pc-legacy-skills",
+      name: "旧档忍者",
+      role: "PC",
+      faction: "斜齿忍军",
+      rank: "中忍",
+      life: {},
+      skills: ["掘削术", "色诱术", "千里眼术", "刀术"],
+      ninpoIds: ["close"],
+      tools: {},
+      ougiSkill: "掘削术",
+    }],
+  });
+
+  assert.deepEqual(migrated.characters[0].skills, ["挖掘术", "女忍术", "千里眼之术", "刀术"]);
+  assert.equal(migrated.characters[0].ougiSkill, "挖掘术");
+});
+
 test("treasures and background items are normalized against the roster", () => {
   const migrated = session.normalizeGameState({
     characters: [{
