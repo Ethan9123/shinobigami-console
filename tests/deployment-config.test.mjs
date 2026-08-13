@@ -19,6 +19,7 @@ test("deployment scripts keep Cloudflare and GitHub Pages builds separate", () =
   assert.equal(pkg.scripts["deploy:cloudflare"], "wrangler deploy");
   assert.match(wrangler, /"main":\s*"dist\/server\/index\.js"/);
   assert.match(wrangler, /"command":\s*"npm run build"/);
+  assert.doesNotMatch(wrangler, /"compatibility_flags"/);
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.match(workflow, /npm run build:pages/);
 });
