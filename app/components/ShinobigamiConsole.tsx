@@ -59,6 +59,15 @@ import { DICE_MAIDEN_HINT, rollDiceCommand } from "../lib/dice";
 import { LOCALES, LOCALE_STORAGE_KEY, normalizeLocale, t } from "../lib/i18n";
 import type { Locale } from "../lib/i18n";
 import { ACADEMY_LESSONS, ACADEMY_PROGRESS_KEY, GLOSSARY, normalizeAcademyProgress } from "../lib/academy";
+import { importCharacterWorkbook } from "../lib/xlsx-import";
+import type { CharacterWorkbookImport } from "../lib/xlsx-import";
+import {
+  CHARACTER_LIBRARY_STORAGE_KEY,
+  materializeCharacter,
+  normalizeCharacterLibrary,
+  upsertCharacterLibrary,
+} from "../lib/character-library";
+import type { CharacterLibraryEntry } from "../lib/character-library";
 
 const STORAGE_KEY = "shinobigami-console-v1";
 const INITIAL_STATE = createInitialGameState();
@@ -154,8 +163,13 @@ export default function ShinobigamiConsole() {
   const [trackerName, setTrackerName] = useState("");
   const [trackerMax, setTrackerMax] = useState(6);
   const [importText, setImportText] = useState("");
+  const [workbookImport, setWorkbookImport] = useState<CharacterWorkbookImport | null>(null);
+  const [workbookImportStatus, setWorkbookImportStatus] = useState("可读取带「纯文字化」工作表的 .xlsx 角色卡");
+  const [characterLibrary, setCharacterLibrary] = useState<CharacterLibraryEntry[]>([]);
+  const [characterLibraryStatus, setCharacterLibraryStatus] = useState("角色库只保存在这台设备；载入时会重置生命力、变调与布局。 ");
   const [hydrated, setHydrated] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const workbookRef = useRef<HTMLInputElement>(null);
   const portraitRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLInputElement>(null);
 
@@ -297,9 +311,11 @@ export default function ShinobigamiConsole() {
     let restored: GameState | null = null;
     let storedLocale: string | null = null;
     let storedAcademy: unknown = [];
+    let storedCharacterLibrary: unknown = [];
     try {
       storedLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
       storedAcademy = JSON.parse(localStorage.getItem(ACADEMY_PROGRESS_KEY) ?? "[]");
+      storedCharacterLibrary = JSON.parse(localStorage.getItem(CHARACTER_LIBRARY_STORAGE_KEY) ?? "[]");
     } catch { /* 独立小键损坏时忽略 */ }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -310,6 +326,7 @@ export default function ShinobigamiConsole() {
     queueMicrotask(() => {
       setLocale(normalizeLocale(storedLocale));
       setAcademyDone(normalizeAcademyProgress(storedAcademy));
+      setCharacterLibrary(normalizeCharacterLibrary(storedCharacterLibrary));
       if (restored) {
         setCharacters(restored.characters);
         setSelectedId(restored.selectedId);
@@ -354,6 +371,15 @@ export default function ShinobigamiConsole() {
       // A large portrait or transcript can exceed the browser quota; JSON export remains available as a fallback.
     }
   }, [characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo, cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, treasures, brief, handouts, resolution, tutorial, transcript, replay, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(CHARACTER_LIBRARY_STORAGE_KEY, JSON.stringify(characterLibrary));
+    } catch {
+      // Device storage may be full or disabled. The in-memory library remains usable for this tab.
+    }
+  }, [characterLibrary, hydrated]);
 
   const currentState = (): GameState => ({
     schemaVersion: 8,
@@ -777,6 +803,51 @@ export default function ShinobigamiConsole() {
     });
     addLog(`已从纯文字角色卡识别 ${importPreview.recognized} 个字段并更新 ${importPreview.name ?? selected.name}。`, "system");
     setImportText("");
+    setWorkbookImport(null);
+    setWorkbookImportStatus("导入已应用；可继续选择另一份 Excel 角色卡");
+  };
+
+  const importWorkbookFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setWorkbookImport(null);
+    setWorkbookImportStatus(`正在本地读取「${file.name}」…`);
+    try {
+      const imported = await importCharacterWorkbook(await file.arrayBuffer());
+      const preview = parseCharacterText(imported.text);
+      setWorkbookImport(imported);
+      setImportText(imported.text);
+      setWorkbookImportStatus(imported.warnings.length
+        ? `${imported.warnings.join(" ")} 当前识别 ${preview.recognized} 项。`
+        : `已读取「${imported.sheetName}」工作表，当前识别 ${preview.recognized} 项。`);
+      addLog(`已在本地读取 Excel 角色卡「${file.name}」；应用前请核对预览。`, "system");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "无法读取这份角色卡。";
+      setWorkbookImportStatus(message);
+      addLog(`Excel 角色卡导入失败：${message}`, "danger");
+    }
+  };
+
+  const saveSelectedToLibrary = () => {
+    setCharacterLibrary((entries) => upsertCharacterLibrary(entries, selected));
+    setCharacterLibraryStatus(`已保存「${selected.name}」；同名、同流派与同阶级角色会更新原条目。`);
+    addLog(`${selected.name} 已保存到本地角色库。`, "system");
+  };
+
+  const loadCharacterFromLibrary = (entry: CharacterLibraryEntry) => {
+    checkpoint();
+    const character = materializeCharacter(entry, uid("pc"), "PC");
+    setCharacters((items) => [...items, character]);
+    setSelectedId(character.id);
+    setView("sheet");
+    setCharacterLibraryStatus(`已把「${character.name}」作为新的 PC 加入本次会话。`);
+    addLog(`${character.name} 已从本地角色库加入角色列表。`, "system");
+  };
+
+  const removeCharacterFromLibrary = (entry: CharacterLibraryEntry) => {
+    setCharacterLibrary((entries) => entries.filter((item) => item.id !== entry.id));
+    setCharacterLibraryStatus(`已从本地角色库移除「${entry.name}」。`);
   };
 
   const importPortrait = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1364,7 +1435,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.6</span>
+          <span className="version">MVP 1.7</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1983,9 +2054,31 @@ export default function ShinobigamiConsole() {
                 {FIELD_NAMES.map((field) => <div className={`skill-column ${selected.life[field] ? "" : "disabled-field"}`} key={field}><button className="field-life" onClick={() => toggleLife(field)}><span>{field}</span><i>{selected.life[field] ? "●" : "×"}</i></button>{SKILL_TABLE[field].map((skill) => <button key={skill} className={selected.skills.includes(skill) ? "learned" : ""} onClick={() => toggleSkill(skill)}>{skill}</button>)}</div>)}
               </div>
               <section className="text-importer">
-                <div><span>SMART IMPORT</span><h3>纯文字角色卡导入</h3><p>支持文件夹中自动角色卡的「纯文字化」格式，也会识别日文特技名。内容只在当前设备解析。</p></div>
-                <textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={"粘贴角色卡文本，例如：\n名前：角色名\n流派：鞍马神流\n階級：中忍\n使命：……\n特技：刀術、走法……"} />
-                <div className="import-preview"><span>识别 {importPreview.recognized} 项</span><b>{importPreview.name ?? "未识别姓名"}</b><em>{importPreview.skills.length} 特技 · {importPreview.ninpoIds.length} 忍法</em><button onClick={applyCharacterImport} disabled={!importPreview.recognized}>应用到当前角色</button></div>
+                <div>
+                  <span>SMART IMPORT</span><h3>Excel／纯文字角色卡导入</h3>
+                  <p>可直接选择自动角色卡 .xlsx，也可粘贴「纯文字化」内容；文件只在当前设备解析，不会上传。</p>
+                  <button className="workbook-import-button" onClick={() => workbookRef.current?.click()}>选择 Excel 角色卡</button>
+                  <input ref={workbookRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={importWorkbookFile} hidden />
+                  <small className="workbook-import-status">{workbookImportStatus}</small>
+                </div>
+                <textarea value={importText} onChange={(event) => { setImportText(event.target.value); setWorkbookImport(null); }} placeholder={"粘贴角色卡文本，例如：\n名前：角色名\n流派：鞍马神流\n階級：中忍\n使命：……\n特技：刀術、走法……"} />
+                <div className="import-preview"><span>识别 {importPreview.recognized} 项</span><b>{importPreview.name ?? "未识别姓名"}</b><em>{importPreview.skills.length} 特技 · {importPreview.ninpoIds.length} 忍法</em>{workbookImport && <small>{workbookImport.sheetName} · {workbookImport.cellCount} 个有效单元格</small>}<button onClick={applyCharacterImport} disabled={!importPreview.recognized}>应用到当前角色</button></div>
+              </section>
+              <section className="character-library-panel">
+                <div className="subsection-heading">
+                  <div><span>DEVICE-LOCAL TEMPLATES</span><h3>本地角色库</h3></div>
+                  <button className="library-save" onClick={saveSelectedToLibrary}>保存当前角色</button>
+                </div>
+                <p className="library-status">{characterLibraryStatus}</p>
+                {characterLibrary.length ? <div className="character-library-grid">
+                  {characterLibrary.map((entry) => <article key={entry.id}>
+                    <div><span>{entry.character.role}</span><small>{entry.savedAt.slice(0, 10)}</small></div>
+                    <h4>{entry.name}</h4>
+                    <p>{entry.faction}{entry.character.subFaction ? `・${entry.character.subFaction}` : ""} · {entry.rank}</p>
+                    <em>{entry.character.skills.length} 特技 · {entry.character.ninpoIds.length} 忍法</em>
+                    <div><button onClick={() => loadCharacterFromLibrary(entry)}>作为 PC 加入</button><button className="library-remove" onClick={() => removeCharacterFromLibrary(entry)}>移除</button></div>
+                  </article>)}
+                </div> : <p className="empty-log library-empty">还没有保存的角色。完成一次导入或车卡后，点击“保存当前角色”。</p>}
               </section>
               <section className="interop-panel">
                 <div className="subsection-heading">

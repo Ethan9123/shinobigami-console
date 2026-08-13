@@ -297,6 +297,9 @@ export function parseCharacterText(input: string): ParsedCharacterText {
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) continue;
+    if (/^(?:●|■|――|忍法\d*|特技|器術|体術|忍術|謀術|戦術|妖術|器术|体术|忍术|谋术|战术|妖术)\s*[：:]?/.test(line)) {
+      activeBlock = null;
+    }
     let matched = false;
     for (const [key, pattern] of labels) {
       const hit = line.match(pattern);

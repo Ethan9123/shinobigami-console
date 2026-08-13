@@ -109,6 +109,21 @@ test("importer parses sub-faction, condition, style and structured background ro
   assert.deepEqual(plain.backgroundItems, []);
 });
 
+test("importer stops multiline blocks when workbook sections change", () => {
+  const parsed = rules.parseCharacterText([
+    "名前：雨燕",
+    "使命：守住秘宝",
+    "这句属于使命正文",
+    "●忍法",
+    "接近战攻击",
+    "特技：刀術、見敵術",
+  ].join("\n"));
+
+  assert.equal(parsed.mission, "守住秘宝\n这句属于使命正文");
+  assert.deepEqual(parsed.skills.sort(), ["刀术", "见敌术"]);
+  assert.deepEqual(parsed.ninpoIds, ["close"]);
+});
+
 test("pre-flight gate separates hard blockers from adjustable build quotas", () => {
   const character = {
     id: "pc1",
