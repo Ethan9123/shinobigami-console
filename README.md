@@ -169,6 +169,11 @@ npm run lint
 npm test
 ```
 
+## 部署
+
+- GitHub Pages：`npm run build:pages` 生成纯前端版本，推送到 `main` 后由 GitHub Actions 发布到 `https://ethan9123.github.io/shinobigami-console/`；
+- Cloudflare Workers：`npm run deploy:cloudflare` 会先执行 vinext 生产构建，再通过根目录 `wrangler.jsonc` 发布完整的 Worker 版本。
+
 团务数据默认只保存在当前浏览器。本地 JSON 可能包含秘密、奥义和主持信息，请按敏感文件保管；“桌面安全”是共享屏幕遮罩，不等同于多人权限系统。
 
 ## 许可与版权
