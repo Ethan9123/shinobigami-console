@@ -7,19 +7,19 @@ export async function generateMetadata(): Promise<Metadata> {
   const incoming = await headers();
   const host = incoming.get("x-forwarded-host") ?? incoming.get("host") ?? "localhost:3000";
   const protocol = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og.png`;
+  const imageUrl = `${protocol}://${host}/og-v17.png`;
 
   return {
     title: "忍神控制台",
-    description: "本地优先的《忍神》团务辅助工具：场景牌桌、局势神谕、镜头账本、熟练 GM 导演席、自动 Replay，以及开源团务互通。",
+    description: "本地优先的《忍神》团务辅助工具：Excel 角色卡导入、本地角色库、场景牌桌、战斗结算与自动 Replay。",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "忍神控制台",
-      description: "场景牌桌 · 局势神谕 · 镜头账本 · 自动 Replay",
+      description: "Excel 角色卡 · 本地角色库 · 一键加入会话",
       type: "website",
-      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "忍神控制台：场景牌桌、局势神谕与熟练 GM 导演席" }],
+      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "忍神控制台 v1.7：Excel 角色卡、本地角色库与会话控制台" }],
     },
-    twitter: { card: "summary_large_image", title: "忍神控制台", description: "场景牌桌 · 局势神谕 · 镜头账本", images: [imageUrl] },
+    twitter: { card: "summary_large_image", title: "忍神控制台 v1.7", description: "Excel 角色卡 · 本地角色库 · 一键加入会话", images: [imageUrl] },
   };
 }
 
