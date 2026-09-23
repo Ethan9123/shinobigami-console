@@ -29,8 +29,9 @@ async function readConsole() {
   const files = await readTreeFiles(componentsUrl);
   const chrome = await readFile(new URL("../app/lib/i18n.ts", import.meta.url), "utf8");
   const hints = await readFile(new URL("../app/lib/hints.ts", import.meta.url), "utf8");
-  const surface = [await readTree(componentsUrl), chrome, hints].join("\n");
-  return { product, files, surface };
+  const components = await readTree(componentsUrl);
+  const surface = [components, chrome, hints].join("\n");
+  return { product, files, components, surface };
 }
 
 // 处理函数可能在任意文件、任意缩进层级：按声明行的缩进找到同级的结束括号
@@ -55,7 +56,7 @@ function handlerSlice(files, name) {
 test("product page replaces the starter preview", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  const { surface } = await readConsole();
+  const { components, surface } = await readConsole();
   const tutorial = await readFile(new URL("../app/components/tutorial/TutorialRunner.tsx", import.meta.url), "utf8");
   const tutorialData = await readFile(new URL("../app/lib/tutorial.ts", import.meta.url), "utf8");
 
@@ -78,8 +79,9 @@ test("product page replaces the starter preview", async () => {
   assert.match(surface, /本地资料体检/);
   assert.match(surface, /当前结算流程/);
   assert.match(surface, /MVP 1\.8\.0/);
-  assert.match(surface, /nav\.academy/);
-  assert.match(surface, /LOCALES/);
+  // i18n.ts 自带这两个标识，只能对组件树断言，才能确认学院页签和语言切换确实被渲染
+  assert.match(components, /nav\.academy/);
+  assert.match(components, /LOCALES\.map/);
   assert.match(surface, /rh 暗骰/);
   assert.match(surface, /骰娘/);
   assert.match(surface, /快速表骰/);
