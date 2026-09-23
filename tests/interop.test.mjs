@@ -97,6 +97,10 @@ test("CCFOLIA clipboard export is public by default and opt-in for private notes
   assert.equal(safe.data.initiative, 4);
   assert.equal(safe.data.iconUrl, "", "local portraits must not be embedded into portable JSON");
   assert.ok(safe.data.status.some((item) => item.label === "忍术" && item.value === 0));
+  assert.deepEqual(safe.data.status.at(-1), { label: "追加生命力", value: 1, max: 1 });
+  const noExtra = interop.createCCFoliaCharacter({ ...character, extraLife: 0 }, rules.COMMON_NINPO);
+  assert.equal(noExtra.data.status.length, 6);
+  assert.ok(noExtra.data.status.every((item) => item.label !== "追加生命力"));
   assert.ok(safe.data.params.some((item) => item.label === "流派" && item.value.includes("莲华王拳")));
   assert.doesNotMatch(safe.data.memo, /其实秘宝|月下无影/);
   assert.match(privateCopy.data.memo, /其实秘宝是一封信/);

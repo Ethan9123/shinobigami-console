@@ -29,7 +29,7 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 1\.8/);
+  assert.match(product, /MVP 1\.8\.0/);
   assert.match(product, /nav\.academy/);
   assert.match(product, /LOCALES/);
   assert.match(product, /rh 暗骰/);

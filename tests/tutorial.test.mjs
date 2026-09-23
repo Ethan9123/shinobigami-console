@@ -175,3 +175,20 @@ test("ending choice and discovered truth produce distinct conclusions", () => {
   assert.equal(informedSeal.stepId, "debrief");
   assert.ok(informedSeal.completedStepIds.includes("ending"));
 });
+
+test("setTutorialPaused toggles only the pause flag without mutating the input", () => {
+  const running = tutorial.createRainZeroLineTutorialState();
+  const before = JSON.stringify(running);
+
+  const paused = tutorial.setTutorialPaused(running, true);
+  assert.equal(paused.safety.paused, true);
+  assert.notEqual(paused, running);
+  assert.notEqual(paused.safety, running.safety);
+  assert.equal(JSON.stringify(running), before, "input state is untouched");
+  assert.deepEqual({ ...paused, safety: { ...paused.safety, paused: running.safety.paused } }, running);
+
+  const resumed = tutorial.setTutorialPaused(paused, false);
+  assert.equal(resumed.safety.paused, false);
+  assert.equal(resumed.stepId, running.stepId);
+  assert.equal(tutorial.normalizeTutorialState(paused).safety.paused, true, "pause survives a save/load round trip");
+});

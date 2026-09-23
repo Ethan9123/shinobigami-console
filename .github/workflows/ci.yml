@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  check:
+    name: check (lint · typecheck · unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npx eslint . --max-warnings=0
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Unit tests (sources are transpiled in-test; no build needed)
+        run: node --test tests/*.test.mjs
+
+  build:
+    name: build (vinext + GitHub Pages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build Cloudflare Worker (vinext)
+        run: npm run build
+      - name: Build GitHub Pages
+        run: npm run build:pages
+      - name: Bundle report & budget
+        run: node scripts/bundle-report.mjs
+        env:
+          BUNDLE_BUDGET_BYTES: "520000"

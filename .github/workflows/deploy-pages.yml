@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Let an in-flight deployment finish instead of cancelling it (GitHub's Pages template default).
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -30,6 +31,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Unit tests (release gate)
+        run: npm test
       - name: Build GitHub Pages
         run: npm run build:pages
       - name: Configure Pages

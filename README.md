@@ -19,6 +19,17 @@
 - 名称修正：术语表「共鸣／猜疑」英文改为官方 Empathy／Mistrust；阶级下拉补「下忍头」并提供「草」；导入能识别日文忍法名 接近戦攻撃・射撃戦攻撃・鎌鼬，以及“接近战攻击（刀术）”这类写明指定特技的写法；
 - 存档升级到 schema 9：旧档的「自由」忍法不猜测特技，留待补选；新增 `paralyzedSkills`（麻痹封锁的特技）与 `outerGapClosed`（器术左侧外空隙），旧档分别为空与未涂黑；本地角色库保留外空隙、清空麻痹等临时状态。
 
+## v1.7.1：工程化与安全
+
+- 新增 GitHub Actions `CI`：每个 PR 与推送到 `main` 都跑 ESLint（`--max-warnings=0`）、`tsc --noEmit`、单元测试，以及 vinext 与 GitHub Pages 两种构建，并在运行摘要中输出 Pages 入口包体积（预算约为当前体积 +10%，超出即失败）；
+- GitHub Pages 发布流程在构建前先跑单元测试作为质量门，并发策略改为不取消进行中的发布；
+- 安全依赖升级：`next` 16.3.6（修复 GHSA-p293-qw3h-jr36、GHSA-2xp9-vwfh-vxw4）、`sharp` 0.35.4、`fflate` 0.8.3（修复畸形 ZIP64 死循环，Excel 导入直接受益），`eslint-config-next` 同步到 16.3.6；`npm audit --omit=dev` 归零；vinext 0.0.50 与新版 next 构建验证通过；
+- 类型检查清零：修正 CCFOLIA 导出里「追加生命力」的状态栏类型声明（运行时行为不变），Worker 入口改用内联的最小绑定类型，并让未绑定 Images 时直接回退原图、不再打错误日志；
+- 清理模板残留死代码：`app/chatgpt-auth.ts`、`db/`、`examples/`、`drizzle/`、`drizzle.config.ts`、`drizzle-orm`／`drizzle-kit` 依赖与 `db:generate` 脚本，以及未被引用的三张模板图标；
+- ESLint 忽略 `dist/`、`dist-pages/`、`.wrangler/` 等构建产物（含嵌套目录中的 `dist/`、`dist-pages/`）以及本地工具目录 `.claude/`，本地构建或存在 agent worktree 时 lint 不再被上千条产物告警淹没；
+- 补测试：本地角色库清洗（非数组、版本不符、缺字段、24 条截断、按保存时间排序）、初始会话不变量、场景牌堆、教学暂停、CCFOLIA「追加生命力」；
+- 分享预览图 `og-v17.png` 尺寸与文件名不变，体积从 2.8 MB 压到约 0.58 MB。
+
 ## v1.7：Excel 车卡接入与本地角色库
 
 - 角色工作台现在可直接选择 `.xlsx` 自动角色卡，优先读取隐藏的「纯文字化／純文字化」工作表，也能从带姓名、流派、阶级、特技等明确标签的角色页安全回退；整个读取过程都在浏览器本地完成；
@@ -179,10 +190,14 @@ npm run dev
 ```
 
 ```bash
-npm run build
-npm run lint
-npm test
+npm test            # 单元测试（直接转译源码，无需先构建）
+npm run lint        # ESLint，零告警
+npm run typecheck   # tsc --noEmit
+npm run check       # lint + typecheck + test
+npm run verify      # check + vinext 构建 + GitHub Pages 构建
 ```
+
+提交 PR 后，GitHub Actions 的 `CI` 会跑同样的检查与两种构建，并报告 Pages 入口包体积；也可在本地构建后用 `npm run bundle:report` 查看。
 
 ## 部署
 

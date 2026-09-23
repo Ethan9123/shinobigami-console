@@ -121,7 +121,7 @@ function publicMemo(character: Character, includePrivate: boolean) {
 /** 生成可直接粘贴到 CCFOLIA 的角色剪贴板 JSON。 */
 export function createCCFoliaCharacter(character: Character, ninpo: Ninpo[], options: InteropOptions = {}): CCFoliaClipboardCharacter {
   const includePrivate = options.includePrivate === true;
-  const status = FIELD_NAMES.map((field) => ({ label: field, value: character.life[field] ? 1 : 0, max: 1 }));
+  const status: CCFoliaClipboardCharacter["data"]["status"] = FIELD_NAMES.map((field) => ({ label: field, value: character.life[field] ? 1 : 0, max: 1 }));
   if (character.extraLife > 0) status.push({ label: "追加生命力", value: character.extraLife, max: character.extraLife });
   const faction = [clean(character.faction), clean(character.subFaction)].filter(Boolean).join("・");
   const params = [

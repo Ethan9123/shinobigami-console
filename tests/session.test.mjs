@@ -305,3 +305,42 @@ test("malformed custom ninpo are dropped or coerced so the console can still ren
   assert.doesNotThrow(() => rules.skillTableOptions(state.characters[0], catalog));
   assert.doesNotThrow(() => rules.evaluateSessionReadiness(state.characters, state.handouts, state.brief.playerCount, state.brief.requirements, catalog));
 });
+
+test("createInitialGameState returns a fresh, internally consistent starter session", () => {
+  const state = session.createInitialGameState();
+  const ids = state.characters.map((character) => character.id);
+
+  assert.equal(state.schemaVersion, 9);
+  assert.ok(state.characters.length >= 2);
+  assert.equal(new Set(ids).size, ids.length, "character ids are unique");
+  assert.ok(state.characters.some((character) => character.role === "PC"));
+  assert.ok(ids.includes(state.selectedId));
+  assert.ok(ids.includes(state.sceneOwnerId));
+  assert.ok(state.sceneParticipantIds.every((id) => ids.includes(id)));
+  assert.equal(state.round, 1);
+  assert.equal(state.cycle, 1);
+  assert.equal(state.sceneNumber, 1);
+  assert.equal(state.phase, "导入");
+  assert.equal(state.resolution, null);
+  assert.equal(state.transcript, null);
+  assert.equal(state.replay, null);
+  assert.equal(state.tutorial.status, "off");
+  for (const character of state.characters) {
+    assert.equal(character.plot, null);
+    assert.ok(Object.values(character.life).every(Boolean), `${character.name} starts at full life`);
+    assert.equal(character.spentCost, 0);
+    assert.deepEqual(character.usedNinpoIds, []);
+  }
+  const pcs = state.characters.filter((character) => character.role === "PC");
+  assert.equal(state.handouts.length, Math.max(1, state.brief.playerCount));
+  assert.ok(state.handouts.every((handout) => handout.assignedCharacterId === "" || pcs.some((pc) => pc.id === handout.assignedCharacterId)));
+
+  const other = session.createInitialGameState();
+  assert.notEqual(other.characters, state.characters, "each call builds new objects");
+  other.logs.push({ id: "mutated" });
+  assert.equal(session.createInitialGameState().logs.length, state.logs.length, "starter logs are copied, not shared");
+
+  const normalized = session.normalizeGameState(state);
+  assert.deepEqual(normalized.characters.map((character) => character.id), ids);
+  assert.equal(normalized.selectedId, state.selectedId);
+});

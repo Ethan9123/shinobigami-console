@@ -62,3 +62,15 @@ test("spotlight ledger derives stable scene shares from completed-scene logs", (
   assert.deepEqual(ledger.map((entry) => entry.scenes), [2, 1]);
   assert.deepEqual(ledger.map((entry) => entry.share), [67, 33]);
 });
+
+test("listSceneCardDecks exposes every scene card kind as a non-empty draw deck", () => {
+  const decks = director.listSceneCardDecks();
+
+  assert.deepEqual(Object.keys(decks), [...director.SCENE_CARD_KINDS]);
+  for (const kind of director.SCENE_CARD_KINDS) {
+    assert.ok(decks[kind].length > 0, `${kind} deck is empty`);
+    assert.ok(decks[kind].every((line) => /^《[^》]+》\S/.test(line)), `${kind} entries use 《title》body`);
+    assert.equal(new Set(decks[kind]).size, decks[kind].length, `${kind} deck has duplicates`);
+  }
+  assert.notEqual(director.listSceneCardDecks(), decks, "each call returns a fresh object");
+});
