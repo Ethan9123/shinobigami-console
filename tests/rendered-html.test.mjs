@@ -29,7 +29,7 @@ test("product page replaces the starter preview", async () => {
   assert.match(product, /开团公告与约束/);
   assert.match(product, /本地资料体检/);
   assert.match(product, /当前结算流程/);
-  assert.match(product, /MVP 1\.7/);
+  assert.match(product, /MVP 1\.8/);
   assert.match(product, /nav\.academy/);
   assert.match(product, /LOCALES/);
   assert.match(product, /rh 暗骰/);
@@ -90,4 +90,21 @@ test("battle and sheet surfaces expose the v1.8 correctness controls", async () 
   assert.match(product, /无（无需判定）/);
   assert.match(product, /"下忍", "下忍头", "中忍"/);
   assert.match(product, /草（NPC 用）/);
+});
+
+test("sheet and check panel expose paralysis, skill table topology and specialty controls", async () => {
+  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  assert.match(product, /usableSkills\(/, "the check panel shares the palette's usable-skill rule");
+  assert.match(product, /skillTableOptions\(/);
+  assert.match(product, /applyParalysis\(/);
+  assert.match(product, /全部解除（身体操术判定成功）/);
+  assert.match(product, /麻痹×/);
+  assert.match(product, /旧存档未记录被封特技，请补抽/);
+  assert.match(product, /麻痹中，已剔除/);
+  assert.match(product, /"paralyzed"/);
+  assert.match(product, /器术左侧（外）/);
+  assert.match(product, /木莲：上下连通/);
+  assert.match(product, /魔界工学：左右连通/);
+  assert.match(product, /连通）/);
+  assert.match(product, /按得意分野涂黑空隙/);
 });

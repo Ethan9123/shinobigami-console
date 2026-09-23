@@ -130,7 +130,7 @@ test("pre-flight gate separates hard blockers from adjustable build quotas", () 
     name: "测试忍者",
     role: "PC",
     faction: "鞍马神流",
-    skills: ["刀术", "走法", "见敌术", "潜伏术", "意气", "第六感"],
+    skills: ["刀术", "走法", "骨法术", "见敌术", "潜伏术", "第六感"],
     ninpoIds: ["close", "cross", "shoot", "blast", "emotion"],
     ninpoSkills: { close: "刀术", shoot: "手里剑术" },
     mission: "完成使命",
@@ -298,4 +298,107 @@ test("importer recognizes Japanese general ninpo names and written designated sk
 
   const plain = rules.parseCharacterText("忍法：接近战攻击");
   assert.deepEqual(plain.ninpoSkills, {}, "no designated skill is guessed when the card does not state one");
+});
+
+test("paralysis seals learned skills one layer at a time with an injectable random source", () => {
+  const first = rules.applyParalysis(["刀术", "走法"], [], () => 0);
+  assert.deepEqual(first, { paralyzed: ["刀术"], picked: "刀术" });
+  const second = rules.applyParalysis(["刀术", "走法"], first.paralyzed, () => 0);
+  assert.deepEqual(second, { paralyzed: ["刀术", "走法"], picked: "走法" });
+  const third = rules.applyParalysis(["刀术", "走法"], second.paralyzed, () => 0);
+  assert.equal(third.picked, null, "the stack limit equals the number of learned skills");
+  assert.deepEqual(third.paralyzed, ["刀术", "走法"]);
+  assert.equal(rules.applyParalysis(["刀术", "走法", "火术"], [], () => 0.999).picked, "火术");
+  assert.deepEqual(rules.applyParalysis(["刀术"], ["火术", "刀术", "刀术"], () => 0).paralyzed, ["刀术"], "stale or duplicate seals are dropped");
+});
+
+test("usable skills drop lost fields and paralyzed skills, and substitution follows", () => {
+  const life = rules.makeLife();
+  assert.deepEqual(rules.usableSkills(["刀术", "走法"], life, ["刀术"]), ["走法"]);
+  assert.deepEqual(rules.usableSkills(["刀术", "火术"], { ...life, 器术: false }), ["刀术"]);
+  assert.deepEqual(rules.usableSkills(["刀术", "不存在的特技"], life), ["刀术"]);
+  assert.equal(rules.nearestSkill(rules.usableSkills(["刀术", "走法"], life, ["刀术"]), "刀术").target, 8, "a sealed skill must be substituted");
+  assert.equal(rules.nearestSkill(rules.usableSkills(["刀术", "走法"], life, []), "刀术").target, 5, "clearing paralysis restores the direct check");
+});
+
+test("mokuren and makai-kogaku connect the skill table edges (rulebook examples)", () => {
+  // 书中例子：器术左侧空隙已涂黑时，《藏兵术》代用《封术》目标值为 6
+  assert.equal(rules.skillDistance("藏兵术", "封术", { outerGapClosed: true, wrapFields: true }), 1);
+  assert.equal(rules.nearestSkill(["藏兵术"], "封术", { outerGapClosed: true, wrapFields: true }).target, 6);
+  assert.equal(rules.skillDistance("藏兵术", "封术", { wrapFields: true }), 2, "an open outer gap costs 2");
+  assert.equal(rules.skillDistance("藏兵术", "封术", {}), 10, "no wrap without makai-kogaku");
+  assert.equal(rules.skillDistance("藏兵术", "封术", { closedGaps: [true], outerGapClosed: true }), 9, "the outer gap only counts when fields wrap");
+  assert.equal(rules.skillDistance("机关术", "挖掘术", { wrapRows: true }), 1);
+  assert.equal(rules.skillDistance("机关术", "挖掘术"), 10);
+  assert.equal(rules.skillDistance("机关术", "咒术", { wrapRows: true, wrapFields: true }), 3);
+  assert.equal(rules.skillDistance("机关术", "咒术"), 20);
+  assert.equal(rules.skillDistance("骑乘术", "异形化", { wrapFields: true }), 4, "wrapping passes the 器术/体术 gap and the outer gap");
+  assert.equal(rules.skillDistance("机关术", "骑乘术", { wrapFields: true }), 2, "the direct path wins when it is shorter");
+  assert.deepEqual(rules.skillDistanceDetail("机关术", "挖掘术", { wrapRows: true }), { distance: 1, wrapped: true });
+  assert.equal(rules.skillDistanceDetail("机关术", "火术", { wrapRows: true }).wrapped, false);
+
+  const plain = rules.nearestSkill(["咒术", "走法"], "挖掘术");
+  assert.equal(plain.skill, "走法");
+  const wrapped = rules.nearestSkill(["咒术", "走法"], "挖掘术", { wrapFields: true });
+  assert.equal(wrapped.skill, "咒术", "the far edge becomes the nearest skill");
+  assert.equal(wrapped.target, 7);
+  assert.equal(wrapped.wrapped, true);
+  assert.equal(rules.substituteSkill(["咒术", "走法"], "挖掘术", "咒术", { wrapFields: true, outerGapClosed: true }).target, 6);
+});
+
+test("skill table options follow learned mokuren / makai-kogaku, including same-name custom ninpo", () => {
+  const mokuren = rules.COMMON_NINPO.find((item) => item.id === "mokuren");
+  const makai = rules.COMMON_NINPO.find((item) => item.id === "makai-kogaku");
+  assert.equal(mokuren.kind, "装备");
+  assert.equal(mokuren.skill, "无");
+  assert.equal(makai.school, "斜齿忍军");
+  assert.equal(rules.designatedSkillChoices(mokuren).length, 0);
+
+  const options = rules.skillTableOptions({ closedGaps: [true], outerGapClosed: true, ninpoIds: ["close", "mokuren"] });
+  assert.equal(options.wrapRows, true);
+  assert.equal(options.wrapFields, false);
+  assert.equal(options.outerGapClosed, true);
+  assert.deepEqual(options.closedGaps, [true]);
+  const custom = { id: "ninpo-custom", name: "魔界工学", kind: "装备", skill: "无", range: 99, cost: 0, summary: "" };
+  assert.equal(rules.skillTableOptions({ closedGaps: [], ninpoIds: ["ninpo-custom"] }, [...rules.COMMON_NINPO, custom]).wrapFields, true);
+  assert.deepEqual(rules.skillTableOptions({ closedGaps: [], ninpoIds: ["close"] }), { closedGaps: [], outerGapClosed: false, wrapRows: false, wrapFields: false });
+});
+
+test("faction specialty suggests gaps and flags thin specialty skills as warnings", () => {
+  assert.deepEqual(rules.specialtyGaps("体术"), { closedGaps: [true, true, false, false, false], outerGapClosed: false });
+  assert.deepEqual(rules.specialtyGaps("器术"), { closedGaps: [true, false, false, false, false], outerGapClosed: true });
+  assert.deepEqual(rules.specialtyGaps("妖术"), { closedGaps: [false, false, false, false, true], outerGapClosed: false });
+  assert.equal(rules.FACTION_SPECIALTY["隐忍血统"], "妖术");
+  assert.equal(rules.factionSpecialty("鞍马神流"), "体术");
+  assert.equal(rules.factionSpecialty("【斜歯忍軍】"), "器术");
+  assert.equal(rules.factionSpecialty("夜渡小队"), null, "original tutorial factions get no suggestion");
+
+  const character = {
+    id: "pc1",
+    name: "测试忍者",
+    role: "PC",
+    faction: "鞍马神流",
+    skills: ["刀术", "走法", "见敌术"],
+    ninpoIds: ["close"],
+    ninpoSkills: { close: "刀术" },
+    mission: "m",
+    secret: "s",
+    tools: {},
+    closedGaps: [false, true, false, false, false],
+    outerGapClosed: false,
+  };
+  const requirements = { requiredSkills: 3, requiredNinpoSlots: 0, requiredTools: 0 };
+  const issues = rules.evaluateCharacterBuild(character, requirements);
+  assert.deepEqual(issues.map((issue) => issue.code).sort(), ["specialty-gaps", "specialty-skills"]);
+  assert.ok(issues.every((issue) => issue.level === "warning"), "specialty checks never block the session");
+  assert.match(issues.find((issue) => issue.code === "specialty-gaps").message, /器术\/体术、体术\/忍术/);
+
+  assert.deepEqual(rules.evaluateCharacterBuild({ ...character, skills: ["刀术", "走法", "骨法术"], closedGaps: [true, true, false, false, false] }, requirements), []);
+  const lower = rules.evaluateCharacterBuild({ ...character, subFaction: "密藏番", closedGaps: [true, true, false, false, false] }, requirements);
+  assert.equal(lower.some((issue) => issue.code === "specialty-skills"), false, "lower factions need 2 specialty skills");
+  const original = rules.evaluateCharacterBuild({ ...character, faction: "夜渡小队" }, requirements);
+  assert.deepEqual(original, []);
+  const { closedGaps, outerGapClosed, ...withoutGaps } = character;
+  assert.equal(rules.evaluateCharacterBuild(withoutGaps, requirements).some((issue) => issue.code === "specialty-gaps"), false, "gaps are only checked when provided");
+  assert.ok(closedGaps && outerGapClosed === false);
 });

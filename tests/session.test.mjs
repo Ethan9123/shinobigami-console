@@ -36,6 +36,7 @@ const sessionOutput = ts.transpileModule(sessionSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const session = await import(`data:text/javascript;base64,${Buffer.from(sessionOutput).toString("base64")}`);
+const rules = await import(rulesUrl);
 
 test("legacy v7 save migrates losslessly to the v0.8 treasure schema", () => {
   const migrated = session.normalizeGameState({
@@ -230,4 +231,54 @@ test("sample characters ship with designated skills for their free attacks", () 
     assert.ok(character.ninpoSkills.close, `${character.name} 的接近战攻击应有指定特技`);
     assert.ok(character.ninpoSkills.shoot, `${character.name} 的射击战攻击应有指定特技`);
   }
+});
+
+test("paralyzed skills keep only learned skills, dedupe and migrate legacy names", () => {
+  const migrated = session.normalizeGameState({
+    characters: [{
+      id: "pc-paralyzed",
+      name: "麻痹忍者",
+      skills: ["刀术", "挖掘术", "走法"],
+      ninpoIds: ["close"],
+      conditions: [],
+      paralyzedSkills: ["掘削术", "刀术", "刀术", "火术", 42],
+    }],
+  });
+  const character = migrated.characters[0];
+  assert.deepEqual(character.paralyzedSkills, ["挖掘术", "刀术"]);
+  assert.ok(character.conditions.includes("麻痹"), "a recorded seal restores the 麻痹 tag");
+  assert.equal(migrated.schemaVersion, 9);
+});
+
+test("legacy paralysis tags stay without guessing which skill was sealed", () => {
+  const input = { characters: [{ id: "legacy", skills: ["刀术", "走法"], ninpoIds: ["close"], conditions: ["麻痹"] }] };
+  const first = session.normalizeGameState(input);
+  const second = session.normalizeGameState(input);
+  assert.deepEqual(first.characters[0].conditions, ["麻痹"]);
+  assert.deepEqual(first.characters[0].paralyzedSkills, []);
+  assert.deepEqual(first.characters[0].paralyzedSkills, second.characters[0].paralyzedSkills, "loading is deterministic");
+});
+
+test("outer gap normalizes to a boolean and closed gaps stay five wide", () => {
+  const migrated = session.normalizeGameState({
+    characters: [
+      { id: "a", closedGaps: [true, false, false, false, false, true], outerGapClosed: true },
+      { id: "b", outerGapClosed: "yes" },
+      { id: "c" },
+    ],
+  });
+  assert.deepEqual(migrated.characters.map((character) => character.outerGapClosed), [true, false, false]);
+  assert.equal(migrated.characters[0].closedGaps.length, 5);
+});
+
+test("sample 月影 fills both gaps beside the 体术 specialty and has three 体术 skills", () => {
+  const initial = session.createInitialGameState();
+  const tsukikage = initial.characters.find((character) => character.id === "pc-tsukikage");
+  assert.deepEqual(tsukikage.closedGaps, [true, true, false, false, false]);
+  assert.equal(tsukikage.outerGapClosed, false);
+  assert.deepEqual(tsukikage.paralyzedSkills, []);
+  assert.equal(tsukikage.skills.filter((skill) => rules.SKILL_TABLE["体术"].includes(skill)).length, 3);
+  assert.equal(rules.nearestSkill(tsukikage.skills, "机关术", rules.skillTableOptions(tsukikage)).target, 8);
+  const issues = rules.evaluateCharacterBuild(tsukikage, initial.brief.requirements);
+  assert.equal(issues.some((issue) => issue.code.startsWith("specialty-")), false, "the sample ships without specialty warnings");
 });

@@ -41,12 +41,16 @@ export type Character = {
   /** 「自由」等需要习得时选定指定特技的忍法：键为 ninpoIds 中的条目，值为选定的特技。 */
   ninpoSkills: Record<string, string>;
   conditions: string[];
+  /** 被「麻痹」封锁的特技（有序、去重、属于 skills）；非空时 conditions 含「麻痹」。旧档只有标签时为空，由界面提示补抽。 */
+  paralyzedSkills: string[];
   spentCost: number;
   usedNinpoIds: string[];
   mission: string;
   secret: string;
   ougi: string;
   closedGaps: boolean[];
+  /** 器术左侧的外空隙是否涂黑；只在【魔界工学】左右连通时计入距离。 */
+  outerGapClosed: boolean;
   acted: boolean;
   tools: Record<"兵粮丸" | "神通丸" | "遁甲符", number>;
 };
@@ -192,16 +196,17 @@ export function createInitialGameState(): GameState {
   const characters: Character[] = [
     {
       id: "pc-tsukikage", name: "月影", role: "PC", faction: "鞍马神流", rank: "中忍", backgroundItems: [], plot: null, active: true,
-      extraLife: 0, life: makeLife(), skills: ["刀术", "走法", "见敌术", "潜伏术", "意气", "第六感"],
-      ninpoIds: ["close", "cross", "shoot", "kamaitachi", "blast"], ninpoSkills: { close: "刀术", shoot: "见敌术" }, conditions: [], spentCost: 0, usedNinpoIds: [],
-      mission: "守住目标，并查明敌人的秘密。", secret: "尚未公开的个人秘密。", ougi: "月下无影", closedGaps: [false, true, false, false, false], acted: false,
+      // 鞍马神流的得意分野为体术：先取 3 个体术特技，并涂黑体术两侧的空隙
+      extraLife: 0, life: makeLife(), skills: ["刀术", "走法", "骨法术", "见敌术", "潜伏术", "第六感"],
+      ninpoIds: ["close", "cross", "shoot", "kamaitachi", "blast"], ninpoSkills: { close: "刀术", shoot: "见敌术" }, conditions: [], paralyzedSkills: [], spentCost: 0, usedNinpoIds: [],
+      mission: "守住目标，并查明敌人的秘密。", secret: "尚未公开的个人秘密。", ougi: "月下无影", closedGaps: [true, true, false, false, false], outerGapClosed: false, acted: false,
       tools: { 兵粮丸: 0, 神通丸: 1, 遁甲符: 1 },
     },
     {
       id: "npc-kirikage", name: "雾隐", role: "NPC", faction: "隐忍血统", rank: "中忍", backgroundItems: [], plot: null, active: true,
       extraLife: 0, life: makeLife(), skills: ["毒术", "潜伏术", "咒术", "异形化", "身体操术", "调查术"],
-      ninpoIds: ["close", "poison", "shoot", "blast", "kamaitachi"], ninpoSkills: { close: "异形化", shoot: "咒术" }, conditions: [], spentCost: 0, usedNinpoIds: [],
-      mission: "击败妨碍计划的忍者。", secret: "真正的目的仍被迷雾掩盖。", ougi: "百毒夜行", closedGaps: [false, false, false, false, true], acted: false,
+      ninpoIds: ["close", "poison", "shoot", "blast", "kamaitachi"], ninpoSkills: { close: "异形化", shoot: "咒术" }, conditions: [], paralyzedSkills: [], spentCost: 0, usedNinpoIds: [],
+      mission: "击败妨碍计划的忍者。", secret: "真正的目的仍被迷雾掩盖。", ougi: "百毒夜行", closedGaps: [false, false, false, false, true], outerGapClosed: false, acted: false,
       tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 0 },
     },
   ];
@@ -293,6 +298,13 @@ function normalizeNinpoSkills(value: unknown, ninpoIds: string[]): Record<string
   return result;
 }
 
+// v1.8 起记录「麻痹」封锁的特技：旧名迁移、去重，只保留已习得的特技；不在载入时随机补抽，保证迁移结果确定
+function normalizeParalyzedSkills(value: unknown, skills: string[]): string[] {
+  return stringList(value)
+    .map(migrateSkillName)
+    .filter((skill, index, list) => skills.includes(skill) && list.indexOf(skill) === index);
+}
+
 function normalizeCharacter(value: unknown, index: number): Character {
   const raw = record(value);
   const lifeRaw = record(raw.life);
@@ -303,6 +315,11 @@ function normalizeCharacter(value: unknown, index: number): Character {
   }
   const role = raw.role === "NPC" ? "NPC" : "PC";
   const ninpoIds = stringList(raw.ninpoIds).filter((id) => id !== "emotion");
+  const skills = stringList(raw.skills).map(migrateSkillName);
+  const paralyzedSkills = normalizeParalyzedSkills(raw.paralyzedSkills, skills);
+  const conditions = stringList(raw.conditions).map((condition) => condition === "失忆" ? "忘却" : condition);
+  // 「麻痹」标签由封锁记录派生：有记录就补上标签；只有标签没有记录的旧档保留标签，由界面提示补抽
+  if (paralyzedSkills.length && !conditions.includes("麻痹")) conditions.push("麻痹");
   return {
     id: text(raw.id) || uid(role.toLowerCase()),
     name: text(raw.name, `${role} ${index + 1}`),
@@ -333,16 +350,18 @@ function normalizeCharacter(value: unknown, index: number): Character {
     active: raw.active !== false,
     extraLife: number(raw.extraLife, 0, 0, 99),
     life: baseLife,
-    skills: stringList(raw.skills).map(migrateSkillName),
+    skills,
     ninpoIds,
     ninpoSkills: normalizeNinpoSkills(raw.ninpoSkills, ninpoIds),
-    conditions: stringList(raw.conditions).map((condition) => condition === "失忆" ? "忘却" : condition),
+    conditions,
+    paralyzedSkills,
     spentCost: number(raw.spentCost, 0, 0, 99),
     usedNinpoIds: stringList(raw.usedNinpoIds),
     mission: text(raw.mission),
     secret: text(raw.secret),
     ougi: text(raw.ougi),
     closedGaps: Array.from({ length: 5 }, (_, gap) => Array.isArray(raw.closedGaps) && raw.closedGaps[gap] === true),
+    outerGapClosed: raw.outerGapClosed === true,
     acted: raw.acted === true,
     tools: {
       兵粮丸: number(toolsRaw.兵粮丸, 0, 0, 99),

@@ -36,10 +36,14 @@ function resetCharacter(character: Character, id: string, role = character.role)
     // 「自由」忍法的指定特技属于构筑数据，随模板保留；v1.8 以前的库条目没有该字段时按 {} 处理
     ninpoSkills: { ...(character.ninpoSkills ?? {}) },
     conditions: [],
+    // 麻痹封锁的特技属于临时战斗状态，随变调一起清空
+    paralyzedSkills: [],
     spentCost: 0,
     usedNinpoIds: [],
     backgroundItems: character.backgroundItems.map((item) => ({ ...item })),
     closedGaps: [...character.closedGaps],
+    // 器术左侧外空隙属于构筑数据；v1.8 以前的库条目没有该字段时按未涂黑处理
+    outerGapClosed: character.outerGapClosed === true,
     acted: false,
     tools: { ...character.tools },
   };

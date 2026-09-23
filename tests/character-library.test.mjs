@@ -76,3 +76,17 @@ test("saving the same identity updates instead of duplicating", () => {
   assert.equal(second[0].id, "entry-1");
   assert.equal(second[0].character.skills.includes("走法"), true);
 });
+
+test("library clears paralysis seals but keeps the outer gap as build data", () => {
+  const [entry] = library.upsertCharacterLibrary([], { ...character, conditions: ["麻痹"], paralyzedSkills: ["刀术"], outerGapClosed: true }, { id: "entry-1", savedAt: "2026-08-12T00:00:00.000Z" });
+  assert.deepEqual(entry.character.paralyzedSkills, []);
+  assert.deepEqual(entry.character.conditions, []);
+  assert.equal(entry.character.outerGapClosed, true);
+  const loaded = library.materializeCharacter(entry, "pc-new", "PC");
+  assert.deepEqual(loaded.paralyzedSkills, []);
+  assert.equal(loaded.outerGapClosed, true);
+
+  const [legacy] = library.normalizeCharacterLibrary([{ schemaVersion: 1, id: "old", savedAt: "2026-08-01T00:00:00.000Z", character }]);
+  assert.deepEqual(legacy.character.paralyzedSkills, []);
+  assert.equal(legacy.character.outerGapClosed, false);
+});

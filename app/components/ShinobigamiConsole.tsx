@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   actionOrder,
+  applyParalysis,
   BackgroundItem,
   battleTargetCheck,
   calculateCheckOdds,
@@ -12,12 +13,13 @@ import {
   designatedSkillChoices,
   EMOTION_PAIRS,
   evaluateSessionReadiness,
+  factionSpecialty,
   FIELD_NAMES,
   FieldName,
-  findSkillPosition,
   checkFumbleLine,
   freshCheckInputs,
   makeLife,
+  matchesSpecialtyGaps,
   nearestSkill,
   Ninpo,
   parseCharacterText,
@@ -25,8 +27,11 @@ import {
   resolveDesignatedSkill,
   rollD6,
   SKILL_TABLE,
+  skillTableOptions,
+  specialtyGaps,
   substituteSkill,
   uid,
+  usableSkills,
 } from "../lib/rules";
 import {
   advanceResolutionAfterRoll,
@@ -216,17 +221,21 @@ export default function ShinobigamiConsole() {
   const learnedNinpo = selected ? allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id) && ninpo.kind !== "装备") : COMMON_NINPO.slice(0, 2);
   const selectedDesignation = resolveDesignatedSkill(selectedNinpo, selected?.ninpoSkills ?? {});
   const selectedNinpoChoices = designatedSkillChoices(selectedNinpo);
+  // 失去生命力分野的特技与被「麻痹」封锁的特技都不能用于判定或代用（与 BCDice 调色板同一口径）
+  const paralyzedSkills = useMemo(() => selected?.paralyzedSkills ?? [], [selected]);
   const availableSkills = useMemo(
-    () => (selected?.skills ?? []).filter((skill) => {
-      const position = findSkillPosition(skill);
-      return position ? selected.life[FIELD_NAMES[position.field]] : false;
-    }),
-    [selected],
+    () => (selected ? usableSkills(selected.skills, selected.life, paralyzedSkills) : []),
+    [paralyzedSkills, selected],
   );
-  const automaticCheck = nearestSkill(availableSkills, targetSkill, selected?.closedGaps ?? []);
+  // 【木莲】上下连通、【魔界工学】左右连通由已习得忍法推出
+  const tableOptions = useMemo(() => (selected ? skillTableOptions(selected, allNinpo) : {}), [allNinpo, selected]);
+  const legacyParalysis = Boolean(selected?.conditions.includes("麻痹")) && !paralyzedSkills.length;
+  const automaticCheck = nearestSkill(availableSkills, targetSkill, tableOptions);
   const check = substituteSkillChoice === "auto"
     ? automaticCheck
-    : substituteSkill(availableSkills, targetSkill, substituteSkillChoice, selected?.closedGaps ?? []);
+    : substituteSkill(availableSkills, targetSkill, substituteSkillChoice, tableOptions);
+  const selectedSpecialty = selected ? factionSpecialty(selected.faction) : null;
+  const specialtyGapsMatch = !selectedSpecialty || !selected || matchesSpecialtyGaps(selected, selectedSpecialty);
   const battleOrder = useMemo(
     () => actionOrder(characters.filter((character) => character.active)),
     [characters],
@@ -323,7 +332,9 @@ export default function ShinobigamiConsole() {
     if (resolution && resolution.stage !== "完成") {
       hints.push({ tone: "danger", title: `结算停在「${resolution.stage}」`, detail: `${resolutionActor?.name ?? "行动者"} 的【${resolution.ninpoName}】尚未完成，不应直接跳到下一位。` });
     }
-    if (!availableSkills.length) hints.push({ tone: "danger", title: `${selected?.name ?? "角色"} 没有可用特技`, detail: "失去生命力的分野不能用于代用；只有大成功才可能成功。" });
+    if (!availableSkills.length) hints.push({ tone: "danger", title: `${selected?.name ?? "角色"} 没有可用特技`, detail: "失去生命力的分野或被麻痹封锁的特技不能用于代用；只有大成功才可能成功。" });
+    if (selected?.paralyzedSkills?.length) hints.push({ tone: "warn", title: `${selected.name} 麻痹×${selected.paralyzedSkills.length}`, detail: `被封特技：${selected.paralyzedSkills.map((skill) => `《${skill}》`).join("")}；每巡结束可用《身体操术》判定，成功则全部解除。` });
+    if (selected && selected.conditions.includes("麻痹") && !selected.paralyzedSkills?.length) hints.push({ tone: "warn", title: "旧存档未记录被封特技，请补抽", detail: `${selected.name} 带有「麻痹」标签，但没有记录封锁了哪个特技；在变调栏点「麻痹」补抽一层，或点「全部解除」。` });
     if (selected && selected.plot != null && selected.spentCost >= selected.plot) hints.push({ tone: "warn", title: "本回合花费已用尽", detail: `${selected.name} 已使用 ${selected.spentCost}/${selected.plot}。` });
     if (dueCues.length) hints.push({ tone: "danger", title: `${dueCues.length} 个主持事件已到点`, detail: tableSafe ? "请切回 GM 视图查看事件内容。" : dueCues.map((cue) => cue.title).join("、") });
     if (!selected?.mission.trim()) hints.push({ tone: "warn", title: "使命尚未填写", detail: "角色卡导入或场景推进前补齐，便于结局检查。" });
@@ -479,8 +490,8 @@ export default function ShinobigamiConsole() {
       id,
       name: role === "PC" ? `新忍者 ${characters.filter((c) => c.role === "PC").length + 1}` : `新敌人 ${characters.filter((c) => c.role === "NPC").length + 1}`,
       role, faction: "未选择流派", rank: "中忍", plot: null, active: true, extraLife: 0, life: makeLife(),
-      skills: ["刀术"], ninpoIds: ["close", "shoot"], ninpoSkills: {}, conditions: [], spentCost: 0, usedNinpoIds: [],
-      mission: "", secret: "", ougi: "", closedGaps: [false, false, false, false, false], acted: false,
+      skills: ["刀术"], ninpoIds: ["close", "shoot"], ninpoSkills: {}, conditions: [], paralyzedSkills: [], spentCost: 0, usedNinpoIds: [],
+      mission: "", secret: "", ougi: "", closedGaps: [false, false, false, false, false], outerGapClosed: false, acted: false,
       player: "", age: "", gender: "", cover: "", belief: "", merit: 0, enemy: "", surface: "", story: "", backgrounds: "", backgroundItems: [], portrait: "",
       subFaction: "", condition: "", style: "",
       ougiSkill: "", ougiEffect: "", ougiStrength: "", ougiWeakness: "",
@@ -516,7 +527,11 @@ export default function ShinobigamiConsole() {
     if (!selected) return;
     checkpoint();
     const skills = selected.skills.includes(skill) ? selected.skills.filter((item) => item !== skill) : [...selected.skills, skill];
-    updateCharacter(selected.id, { skills });
+    // 移除已习得特技时一并移除它的麻痹封锁；封锁记录清空后「麻痹」标签随之解除
+    const before = selected.paralyzedSkills ?? [];
+    const paralyzed = before.filter((item) => skills.includes(item));
+    const conditions = before.length && !paralyzed.length ? selected.conditions.filter((item) => item !== "麻痹") : selected.conditions;
+    updateCharacter(selected.id, { skills, paralyzedSkills: paralyzed, conditions });
   };
 
   const toggleGap = (index: number) => {
@@ -525,6 +540,21 @@ export default function ShinobigamiConsole() {
     const closedGaps = [...(selected.closedGaps ?? [false, false, false, false, false])];
     closedGaps[index] = !closedGaps[index];
     updateCharacter(selected.id, { closedGaps });
+  };
+
+  const toggleOuterGap = () => {
+    if (!selected) return;
+    checkpoint();
+    updateCharacter(selected.id, { outerGapClosed: !selected.outerGapClosed });
+  };
+
+  // 得意分野的空隙只作建议：由玩家点击后才覆盖（长处背景可能改变空隙）
+  const applySpecialtyGaps = () => {
+    if (!selected || !selectedSpecialty) return;
+    checkpoint();
+    const suggestion = specialtyGaps(selectedSpecialty);
+    updateCharacter(selected.id, { closedGaps: suggestion.closedGaps, outerGapClosed: suggestion.outerGapClosed });
+    addLog(`${selected.name} 已按得意分野「${selectedSpecialty}」涂黑两侧空隙。`, "system");
   };
 
   const updateBrief = (patch: Partial<SessionBrief>) => {
@@ -819,7 +849,14 @@ export default function ShinobigamiConsole() {
   const applyCharacterImport = () => {
     if (!selected || !importPreview.recognized) return;
     checkpoint();
+    const importedFaction = importPreview.faction ?? selected.faction;
+    const importedSkills = importPreview.skills.length ? importPreview.skills : selected.skills;
+    const importedSpecialty = factionSpecialty(importedFaction);
+    if (importedSpecialty && !matchesSpecialtyGaps(selected, importedSpecialty)) {
+      addLog(`「${importedFaction}」的得意分野为${importedSpecialty}：特技空隙与建议不一致，可在特技空隙旁点「按得意分野涂黑空隙」（长处背景可能改变空隙，以角色卡为准）。`, "system");
+    }
     updateCharacter(selected.id, {
+      paralyzedSkills: (selected.paralyzedSkills ?? []).filter((skill) => importedSkills.includes(skill)),
       name: importPreview.name ?? selected.name,
       faction: importPreview.faction ?? selected.faction,
       subFaction: importPreview.subFaction ?? selected.subFaction,
@@ -1250,8 +1287,35 @@ export default function ShinobigamiConsole() {
     setResolution(null);
   };
 
+  // 「麻痹」可累积：每点一次随机封锁 1 个尚未被封的已习得特技，上限为已习得特技数
+  const addParalysisLayer = () => {
+    if (!selected) return;
+    const learned = Array.from(new Set(selected.skills));
+    const { paralyzed, picked } = applyParalysis(learned, selected.paralyzedSkills ?? []);
+    if (!picked) {
+      addLog(`${selected.name} 的已习得特技已全部被麻痹封锁（${paralyzed.length}/${learned.length} 层），不可再累积。`, "danger");
+      return;
+    }
+    checkpoint();
+    const conditions = selected.conditions.includes("麻痹") ? selected.conditions : [...selected.conditions, "麻痹"];
+    updateCharacter(selected.id, { paralyzedSkills: paralyzed, conditions });
+    addLog(`${selected.name} 麻痹：封锁《${picked}》（第 ${paralyzed.length}/${learned.length} 层）。`, "danger");
+  };
+
+  const clearParalysis = () => {
+    if (!selected) return;
+    checkpoint();
+    const released = selected.paralyzedSkills ?? [];
+    updateCharacter(selected.id, { paralyzedSkills: [], conditions: selected.conditions.filter((item) => item !== "麻痹") });
+    addLog(`${selected.name} 的麻痹全部解除${released.length ? `（${released.map((skill) => `《${skill}》`).join("")}恢复可用）` : ""}。`, "action");
+  };
+
   const toggleCondition = (condition: string) => {
     if (!selected) return;
+    if (condition === "麻痹") {
+      addParalysisLayer();
+      return;
+    }
     checkpoint();
     const conditions = selected.conditions.includes(condition) ? selected.conditions.filter((item) => item !== condition) : [...selected.conditions, condition];
     updateCharacter(selected.id, { conditions });
@@ -1527,7 +1591,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.7</span>
+          <span className="version">MVP 1.8</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>
@@ -1801,7 +1865,8 @@ export default function ShinobigamiConsole() {
                       {availableSkills.map((skill) => <option value={skill} key={skill}>{skill}{skill === automaticCheck.skill ? "（最近）" : "（主动远距代用）"}</option>)}
                     </select>
                   </label>
-                  <p className="substitution">本次使用：<b>{check.skill}</b> <span>距离 {check.distance}</span>{check.criticalOnly && <em>无可用特技：仅大成功可成功</em>}</p>
+                  <p className="substitution">本次使用：<b>{check.skill}</b> <span>距离 {check.distance}{check.wrapped ? `（经${[tableOptions.wrapRows ? "木莲" : "", tableOptions.wrapFields ? "魔界工学" : ""].filter(Boolean).join("/")}连通）` : ""}</span>{check.criticalOnly && <em>无可用特技：仅大成功可成功</em>}</p>
+                  {paralyzedSkills.length > 0 && <p className="substitution paralysis-note">{paralyzedSkills.includes(targetSkill) ? `《${targetSkill}》麻痹中，已剔除，按代用计算；` : ""}麻痹封锁 {paralyzedSkills.map((skill) => `《${skill}》`).join("")}，已从可用特技中剔除</p>}
                   {inReversal && <label className="reversal-toggle"><input type="checkbox" checked={reversalExempt} onChange={(event) => setReversalExempt(event.target.checked)} />本判定可在逆止中进行（奥义／写明可用的忍法）</label>}
                   <div className="odds-panel">
                     <div><span>成功率</span><strong>{(odds.success * 100).toFixed(1)}%</strong>{reversedCheck && <em>逆止中：行为判定自动失败</em>}</div>
@@ -2149,9 +2214,18 @@ export default function ShinobigamiConsole() {
                 <label>强化<input value={selected.ougiStrength ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiStrength: event.target.value })} /></label>
                 <label>弱点<input value={selected.ougiWeakness ?? ""} onChange={(event) => updateCharacter(selected.id, { ougiWeakness: event.target.value })} /></label>
               </div>
-              <div className="gap-controls"><span>特技空隙</span>{FIELD_NAMES.slice(0, -1).map((field, index) => <button key={field} className={selected.closedGaps?.[index] ? "closed" : ""} onClick={() => toggleGap(index)}>{field}/{FIELD_NAMES[index + 1]} · {selected.closedGaps?.[index] ? "已填" : "空白"}</button>)}<em>填黑的空隙不计格数</em></div>
+              <div className="gap-controls"><span>特技空隙</span><button className={selected.outerGapClosed ? "closed" : ""} onClick={toggleOuterGap} title="器术左侧的外空隙：仅【魔界工学】左右连通生效时计入">器术左侧（外） · {selected.outerGapClosed ? "已填" : "空白"}</button>{FIELD_NAMES.slice(0, -1).map((field, index) => <button key={field} className={selected.closedGaps?.[index] ? "closed" : ""} onClick={() => toggleGap(index)}>{field}/{FIELD_NAMES[index + 1]} · {selected.closedGaps?.[index] ? "已填" : "空白"}</button>)}<em>填黑的空隙只算 1 格；外空隙仅【魔界工学】生效时计入</em></div>
+              <div className="gap-controls topology-row">
+                <span className={`topology-badge ${tableOptions.wrapRows ? "on" : ""}`} title="习得【木莲】时，特技表最上一行与最下一行相邻">木莲：上下连通 {tableOptions.wrapRows ? "✓" : "–"}</span>
+                <span className={`topology-badge ${tableOptions.wrapFields ? "on" : ""}`} title="习得【魔界工学】时，器术列与妖术列相邻">魔界工学：左右连通 {tableOptions.wrapFields ? "✓" : "–"}</span>
+                {selectedSpecialty && !specialtyGapsMatch && <button className="specialty-gaps" onClick={applySpecialtyGaps} title="按流派得意分野覆盖当前空隙；长处背景可能改变空隙，以角色卡为准（可撤销）">按得意分野涂黑空隙（{selectedSpecialty}）</button>}
+                {selectedSpecialty && specialtyGapsMatch && <em>空隙与得意分野「{selectedSpecialty}」一致</em>}
+              </div>
               <div className="skill-matrix">
-                {FIELD_NAMES.map((field) => <div className={`skill-column ${selected.life[field] ? "" : "disabled-field"}`} key={field}><button className="field-life" onClick={() => toggleLife(field)}><span>{field}</span><i>{selected.life[field] ? "●" : "×"}</i></button>{SKILL_TABLE[field].map((skill) => <button key={skill} className={selected.skills.includes(skill) ? "learned" : ""} onClick={() => toggleSkill(skill)}>{skill}</button>)}</div>)}
+                {FIELD_NAMES.map((field) => <div className={`skill-column ${selected.life[field] ? "" : "disabled-field"}`} key={field}><button className="field-life" onClick={() => toggleLife(field)}><span>{field}</span><i>{selected.life[field] ? "●" : "×"}</i></button>{SKILL_TABLE[field].map((skill) => {
+                  const sealed = paralyzedSkills.includes(skill);
+                  return <button key={skill} className={[selected.skills.includes(skill) ? "learned" : "", sealed ? "paralyzed" : ""].filter(Boolean).join(" ")} title={sealed ? "麻痹中：此特技暂时不能使用（奥义的指定特技不受影响）" : undefined} onClick={() => toggleSkill(skill)}>{skill}</button>;
+                })}</div>)}
               </div>
               <section className="text-importer">
                 <div>
@@ -2217,7 +2291,7 @@ export default function ShinobigamiConsole() {
                   const choices = equipped ? designatedSkillChoices(ninpo) : [];
                   const chosen = choices.length ? resolveDesignatedSkill(ninpo, selected.ninpoSkills ?? {}).skill : null;
                   return <div className={equipped ? "equipped" : ""} key={ninpo.id}>
-                    <button onClick={() => toggleNinpo(ninpo.id)}><b>{ninpo.name}</b><span>{ninpo.kind} · {ninpo.skill} · 距{ninpo.range} · 费{ninpo.cost}</span></button>
+                    <button onClick={() => toggleNinpo(ninpo.id)}><b>{ninpo.name}</b><span>{ninpo.kind} · {ninpo.skill} · 距{ninpo.range >= 99 ? "无" : ninpo.range} · 费{ninpo.cost}</span></button>
                     {choices.length > 0 && <label className={`ninpo-skill-pick ${chosen ? "" : "skill-unset"}`}>指定特技<select aria-label={`${ninpo.name} 的指定特技`} value={chosen ?? ""} onChange={(event) => setNinpoSkill(selected, ninpo, event.target.value)}><option value="">未指定</option><SkillOptions choices={choices} /></select></label>}
                     {customNinpo.some((item) => item.id === ninpo.id) && <button className="remove-custom" aria-label={`删除自定义忍法 ${ninpo.name}`} onClick={() => deleteCustomNinpo(ninpo.id)}>×</button>}
                   </div>;
@@ -2238,7 +2312,13 @@ export default function ShinobigamiConsole() {
 
           {view !== "tutorial" && <section className="panel status-panel">
             <div className="status-block life-block"><span className="mini-label">LIFE / 生命力</span><div className="field-toggles">{FIELD_NAMES.map((field) => <button key={field} className={selected.life[field] ? "healthy" : "lost"} onClick={() => toggleLife(field)}><i />{field}</button>)}</div><div className="extra-life"><span>追加生命力</span><button onClick={() => updateCharacter(selected.id, { extraLife: Math.max(0, selected.extraLife - 1) })}>−</button><strong>{selected.extraLife}</strong><button onClick={() => updateCharacter(selected.id, { extraLife: selected.extraLife + 1 })}>＋</button><button className={`active-toggle ${selected.active ? "" : "dropped"}`} onClick={toggleActive}>{selected.active ? "参战中" : "已脱落"}</button></div></div>
-            <div className="status-block"><span className="mini-label">CONDITION / 变调·状态</span><div className="condition-list">{CONDITIONS.map((condition) => <button key={condition} className={selected.conditions.includes(condition) ? "active" : ""} onClick={() => toggleCondition(condition)}>{condition}</button>)}</div></div>
+            <div className="status-block"><span className="mini-label">CONDITION / 变调·状态</span><div className="condition-list">{CONDITIONS.map((condition) => condition === "麻痹"
+              ? <button key={condition} className={selected.conditions.includes(condition) ? "active" : ""} onClick={() => toggleCondition(condition)} title="点击追加一层：随机封锁 1 个尚未被封的已习得特技">{paralyzedSkills.length ? `麻痹×${paralyzedSkills.length}` : condition}</button>
+              : <button key={condition} className={selected.conditions.includes(condition) ? "active" : ""} onClick={() => toggleCondition(condition)}>{condition}</button>)}
+              {selected.conditions.includes("麻痹") && <button className="condition-clear" onClick={clearParalysis}>全部解除（身体操术判定成功）</button>}
+            </div>
+            {paralyzedSkills.length > 0 && <p className="paralysis-note">麻痹封锁：{paralyzedSkills.map((skill) => `《${skill}》`).join("")}（奥义的指定特技不受影响）</p>}
+            {legacyParalysis && <p className="paralysis-note warn">旧存档未记录被封特技，请补抽：点「麻痹」随机封锁一层，或点「全部解除」。</p>}</div>
             <div className="status-block"><span className="mini-label">TOOLS / 忍具</span><div className="tool-list">{(Object.keys(selected.tools) as Array<keyof Character["tools"]>).map((tool) => <div key={tool}><span>{tool}</span><button onClick={() => updateTool(tool, -1)}>−</button><b>{selected.tools[tool]}</b><button onClick={() => updateTool(tool, 1)}>＋</button></div>)}</div></div>
           </section>}
         </section>
