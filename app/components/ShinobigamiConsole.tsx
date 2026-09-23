@@ -1435,7 +1435,7 @@ export default function ShinobigamiConsole() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">忍</span>
           <div><p className="eyebrow">SHINOBIGAMI · SESSION CONSOLE</p><h1>忍神控制台</h1></div>
-          <span className="version">MVP 1.7</span>
+          <span className="version">MVP 1.7.1</span>
         </div>
         <div className="top-actions">
           <div className="round-badge"><span>ROUND</span><strong>{String(round).padStart(2, "0")}</strong></div>

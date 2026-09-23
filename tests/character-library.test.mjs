@@ -65,3 +65,59 @@ test("saving the same identity updates instead of duplicating", () => {
   assert.equal(second[0].id, "entry-1");
   assert.equal(second[0].character.skills.includes("走法"), true);
 });
+
+test("normalizeCharacterLibrary rejects non-array and malformed storage payloads", () => {
+  for (const input of [null, undefined, "[]", 42, {}, { entries: [] }]) {
+    assert.deepEqual(library.normalizeCharacterLibrary(input), []);
+  }
+  const valid = library.createCharacterLibraryEntry(character, { id: "ok", savedAt: "2026-08-12T00:00:00.000Z" });
+  const missingSkills = { ...valid.character };
+  delete missingSkills.skills;
+  const normalized = library.normalizeCharacterLibrary([
+    null,
+    "entry",
+    { ...valid, id: "wrong-schema", schemaVersion: 2 },
+    { ...valid, id: "no-schema", schemaVersion: undefined },
+    { ...valid, id: 7 },
+    { ...valid, id: "no-saved-at", savedAt: undefined },
+    { ...valid, id: "no-character", character: undefined },
+    { ...valid, id: "no-skills", character: missingSkills },
+    { ...valid, id: "bad-life", character: { ...valid.character, life: null } },
+    valid,
+  ]);
+  assert.deepEqual(normalized.map((entry) => entry.id), ["ok"]);
+});
+
+test("normalizeCharacterLibrary re-sanitizes entries, sorts by savedAt and caps the list", () => {
+  const dirty = {
+    schemaVersion: 1,
+    id: "dirty",
+    name: "stale name",
+    faction: "stale",
+    rank: "stale",
+    savedAt: "2026-08-01T00:00:00.000Z",
+    character,
+  };
+  const [clean] = library.normalizeCharacterLibrary([dirty]);
+  assert.equal(clean.name, "雨燕", "header fields are rebuilt from the stored character");
+  assert.equal(clean.character.id, "template-dirty");
+  assert.equal(clean.character.portrait, "");
+  assert.deepEqual(clean.character.conditions, []);
+  assert.equal(clean.character.spentCost, 0);
+
+  const many = Array.from({ length: 30 }, (_, index) => library.createCharacterLibraryEntry(
+    { ...character, name: `忍者${index}` },
+    { id: `entry-${index}`, savedAt: `2026-08-${String(index + 1).padStart(2, "0")}T00:00:00.000Z` },
+  ));
+  const shuffled = [...many.slice(10), ...many.slice(0, 10)];
+  const result = library.normalizeCharacterLibrary(shuffled);
+  assert.equal(library.CHARACTER_LIBRARY_LIMIT, 24);
+  assert.equal(result.length, library.CHARACTER_LIBRARY_LIMIT);
+  assert.equal(result[0].id, "entry-29", "newest first");
+  assert.equal(result.at(-1).id, "entry-6", "oldest overflow entries are dropped");
+  assert.ok(result.every((entry, index) => index === 0 || result[index - 1].savedAt >= entry.savedAt));
+});
+
+test("character library storage key stays stable so saved templates are not orphaned", () => {
+  assert.equal(library.CHARACTER_LIBRARY_STORAGE_KEY, "shinobigami-character-library-v1");
+});
