@@ -113,6 +113,13 @@ export function useGameStore() {
     setCharacters((items) => items.map((character) => character.id === id ? { ...character, ...patch } : character));
   };
 
+  const persistLocale = (next: Locale) => {
+    try { localStorage.setItem(LOCALE_STORAGE_KEY, next); } catch { /* 存储满时忽略 */ }
+  };
+  const persistAcademyProgress = (next: string[]) => {
+    try { localStorage.setItem(ACADEMY_PROGRESS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
   const undo = () => {
     const previous = history[history.length - 1];
     if (!previous) return;
@@ -138,6 +145,8 @@ export function useGameStore() {
     checkpoint,
     addLog,
     updateCharacter,
+    persistLocale,
+    persistAcademyProgress,
     undo,
   };
 }

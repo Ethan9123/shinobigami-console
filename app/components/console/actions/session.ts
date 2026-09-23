@@ -1,19 +1,19 @@
-import type { ChangeEvent } from "react";
-import { ACADEMY_PROGRESS_KEY } from "../../../lib/academy";
-import { LOCALE_STORAGE_KEY } from "../../../lib/i18n";
+import type { ChangeEvent, FormEvent } from "react";
+import { DICE_MAIDEN_HINT, rollDiceCommand } from "../../../lib/dice";
+import { listSceneCardDecks } from "../../../lib/director";
 import type { Locale } from "../../../lib/i18n";
-import { uid } from "../../../lib/rules";
+import { SKILL_TABLE, uid } from "../../../lib/rules";
 import { createInitialGameState, normalizeGameState } from "../../../lib/session";
 import type { Phase } from "../../../lib/session";
 import type { ConsoleBase } from "../types";
 
 export function createSessionActions(ctx: ConsoleBase) {
   const {
-    addLog, checkpoint, currentState, phase, round, setAcademyDone, setGame, setGmBeat, setGmPressure, setInteropPrivate,
-    setLastRoll, setLocale, setPhase, setReplayEnding, setReplayGenre, setReplayHeroId, setReplayIntensity,
-    setReplayLength, setReplayMode, setReplayRevealSecrets, setReplaySeed, setTargetId, setTranscriptDraft,
-    setTranscriptQuery, setTranscriptSceneId, setTranscriptSpeaker, setTreasureName, setTreasureNote,
-    setTreasureTargets, setView,
+    addLog, checkpoint, currentState, diceInput, persistAcademyProgress, persistLocale, phase, round, selected,
+    setAcademyDone, setDiceHint, setDiceInput, setGame, setGmBeat, setGmPressure, setInteropPrivate, setLastRoll,
+    setLocale, setPhase, setReplayEnding, setReplayGenre, setReplayHeroId, setReplayIntensity, setReplayLength,
+    setReplayMode, setReplayRevealSecrets, setReplaySeed, setTargetId, setTranscriptDraft, setTranscriptQuery,
+    setTranscriptSceneId, setTranscriptSpeaker, setTreasureName, setTreasureNote, setTreasureTargets, setView,
   } = ctx;
 
   const changePhase = (next: Phase) => {
@@ -83,19 +83,31 @@ export function createSessionActions(ctx: ConsoleBase) {
 
   const switchLocale = (next: Locale) => {
     setLocale(next);
-    try { localStorage.setItem(LOCALE_STORAGE_KEY, next); } catch { /* 存储满时忽略 */ }
+    persistLocale(next);
   };
 
   const toggleLessonDone = (lessonId: string) => {
     setAcademyDone((current) => {
       const next = current.includes(lessonId) ? current.filter((id) => id !== lessonId) : [...current, lessonId];
-      try { localStorage.setItem(ACADEMY_PROGRESS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      persistAcademyProgress(next);
       return next;
     });
   };
 
+  const submitDiceCommand = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const outcome = rollDiceCommand(diceInput, Math.random, { name: selected?.name ?? "GM", date: new Date().toISOString().slice(0, 10), skillTable: SKILL_TABLE, decks: listSceneCardDecks() });
+    if (!outcome) {
+      setDiceHint(diceInput.trim() ? `骰娘歪了歪头：这句没看懂。${DICE_MAIDEN_HINT}` : DICE_MAIDEN_HINT);
+      return;
+    }
+    addLog(`[骰娘]${outcome.hidden ? "[暗骰]" : ""} ${outcome.text}${outcome.flavor ? `「${outcome.flavor}」` : ""}`, outcome.tone);
+    setDiceInput("");
+    setDiceHint("");
+  };
+
   return {
-    changePhase, exportSave, importSave, clearSession, switchLocale, toggleLessonDone,
+    changePhase, exportSave, importSave, clearSession, switchLocale, toggleLessonDone, submitDiceCommand,
   };
 }
 
