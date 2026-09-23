@@ -11,7 +11,7 @@
 - 安全依赖升级：`next` 16.3.6（修复 GHSA-p293-qw3h-jr36、GHSA-2xp9-vwfh-vxw4）、`sharp` 0.35.4、`fflate` 0.8.3（修复畸形 ZIP64 死循环，Excel 导入直接受益），`eslint-config-next` 同步到 16.3.6；`npm audit --omit=dev` 归零；vinext 0.0.50 与新版 next 构建验证通过；
 - 类型检查清零：修正 CCFOLIA 导出里「追加生命力」的状态栏类型声明（运行时行为不变），Worker 入口改用内联的最小绑定类型，并让未绑定 Images 时直接回退原图、不再打错误日志；
 - 清理模板残留死代码：`app/chatgpt-auth.ts`、`db/`、`examples/`、`drizzle/`、`drizzle.config.ts`、`drizzle-orm`／`drizzle-kit` 依赖与 `db:generate` 脚本，以及未被引用的三张模板图标；
-- ESLint 忽略 `dist/`、`dist-pages/`、`.wrangler/` 等构建产物，本地构建后 lint 不再被上千条产物告警淹没；
+- ESLint 忽略 `dist/`、`dist-pages/`、`.wrangler/` 等构建产物（含嵌套目录中的 `dist/`、`dist-pages/`）以及本地工具目录 `.claude/`，本地构建或存在 agent worktree 时 lint 不再被上千条产物告警淹没；
 - 补测试：本地角色库清洗（非数组、版本不符、缺字段、24 条截断、按保存时间排序）、初始会话不变量、场景牌堆、教学暂停、CCFOLIA「追加生命力」；
 - 分享预览图 `og-v17.png` 尺寸与文件名不变，体积从 2.8 MB 压到约 0.58 MB。
 

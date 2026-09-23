@@ -14,9 +14,13 @@ const eslintConfig = defineConfig([
     ".vinext/**",
     ".wrangler/**",
     "out/**",
-    "dist/**",
-    "dist-pages/**",
+    // `**/` prefixes also catch build output inside nested checkouts.
+    "**/dist/**",
+    "**/dist-pages/**",
     "coverage/**",
+    // Local agent/session tooling (gitignored; holds git worktrees with their
+    // own sources and build output). ESLint flat config ignores .gitignore.
+    ".claude/**",
   ]),
 ]);
 
