@@ -175,7 +175,7 @@ test("free designated skill must be chosen and resolves to the chosen skill (aud
   assert.equal(rules.resolveDesignatedSkill(close, {}).skill, null);
   assert.equal(rules.resolveDesignatedSkill(close, { close: "不是特技" }).needsChoice, true);
   assert.deepEqual(rules.resolveDesignatedSkill(blast, {}), { skill: "火术", needsChoice: false, variable: false });
-  assert.deepEqual(rules.resolveDesignatedSkill({ id: "x", skill: "无" }, {}), { skill: null, needsChoice: false, variable: false });
+  assert.deepEqual(rules.resolveDesignatedSkill({ id: "x", skill: "无" }, {}), { skill: null, needsChoice: false, variable: false, noCheck: true });
   assert.equal(rules.resolveDesignatedSkill({ id: "x", skill: "可变" }, {}).variable, true);
   assert.equal(rules.resolveDesignatedSkill({ id: "x", skill: "自由", skillOptions: ["火术", "水术"] }, { x: "刀术" }).needsChoice, true, "choice outside the listed options is rejected");
 });
@@ -274,6 +274,50 @@ test("action order runs from high plot to 0, unset plots last", () => {
   assert.deepEqual(order.map((item) => item.plot), [6, 3, 0]);
   const withUnset = rules.actionOrder([{ id: "a", plot: null }, { id: "b", plot: 0 }, { id: "c", plot: 2 }, { id: "d", plot: 2 }]);
   assert.deepEqual(withUnset.map((item) => item.id), ["c", "d", "b", "a"]);
+});
+
+test("turn pointer keeps the current actor when the action order changes", () => {
+  // B 行动中击倒排在前面的 A：B 仍是当前行动者，下一位是 C
+  assert.equal(rules.reanchorTurnIndex(["a", "b", "c"], 1, ["b", "c"]), 0);
+  // 当前行动者本人脱落：由排在其后的下一位接手
+  assert.equal(rules.reanchorTurnIndex(["a", "b", "c"], 1, ["a", "c"]), 1);
+  // 排在后面的人脱落不影响当前行动者
+  assert.equal(rules.reanchorTurnIndex(["a", "b", "c"], 0, ["a", "b"]), 0);
+  // 重新参战者插到当前行动者前面：指针跟着当前行动者后移
+  assert.equal(rules.reanchorTurnIndex(["b", "c"], 1, ["a", "b", "c"]), 2);
+  // 公开后当前行动者 A 布局改为 0（移到末尾）：B 接手
+  assert.equal(rules.reanchorTurnIndex(["a", "b", "c"], 0, ["b", "c", "a"], "a"), 0);
+  // 已行动的 A 改为 0：当前行动者 B 保持不变
+  assert.equal(rules.reanchorTurnIndex(["a", "b", "c"], 1, ["b", "c", "a"], "a"), 0);
+  // 最后一位离开且无人等待：回到 0（本回合结束）
+  assert.equal(rules.reanchorTurnIndex(["a", "b", "c"], 2, ["a", "b"]), 0);
+  assert.equal(rules.reanchorTurnIndex([], 0, ["a"]), 0);
+});
+
+test("clearing battle round state drops plot, spent cost, used ninpo and 逆止 only", () => {
+  const cleared = rules.clearBattleRoundState({ id: "a", plot: 4, spentCost: 2, usedNinpoIds: ["close"], conditions: ["逆止", "麻痹"] });
+  assert.deepEqual(cleared, { id: "a", plot: null, spentCost: 0, usedNinpoIds: [], conditions: ["麻痹"] });
+});
+
+test("short and Japanese forms of the academy faction resolve to its specialty", () => {
+  for (const name of ["御斋学园", "御斎学園", "御齋學園", "私立御齋學園"]) {
+    assert.equal(rules.factionSpecialty(name), "战术", name);
+  }
+});
+
+test("importer recognizes traditional and Japanese spellings of the wrap ninpo", () => {
+  const parsed = rules.parseCharacterText("忍法：木蓮、魔界工學");
+  assert.ok(parsed.ninpoIds.includes("mokuren"));
+  assert.ok(parsed.ninpoIds.includes("makai-kogaku"));
+  const options = rules.skillTableOptions({ ninpoIds: parsed.ninpoIds });
+  assert.equal(options.wrapRows, true);
+  assert.equal(options.wrapFields, true);
+});
+
+test("malformed custom ninpo fields do not crash table options or designated skill lookups", () => {
+  assert.doesNotThrow(() => rules.skillTableOptions({ ninpoIds: ["x"] }, [{ id: "x", name: 5 }]));
+  assert.deepEqual(rules.designatedSkillChoices({ skill: "自由", skillOptions: "刀术" }).length, rules.ALL_SKILLS.length);
+  assert.deepEqual(rules.resolveDesignatedSkill({ id: "n", skill: "无" }), { skill: null, needsChoice: false, variable: false, noCheck: true });
 });
 
 test("attack ninpo are limited to the actor's own turn, once per round, with GM override", () => {

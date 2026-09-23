@@ -140,7 +140,9 @@ export function skillTableOptions(
   ninpoCatalog: Array<Pick<Ninpo, "id" | "name">> = COMMON_NINPO,
 ): SkillTableOptions {
   const ids = character.ninpoIds ?? [];
-  const learnedNames = ninpoCatalog.filter((ninpo) => ids.includes(ninpo.id)).map((ninpo) => ninpo.name.trim());
+  const learnedNames = ninpoCatalog
+    .filter((ninpo) => ids.includes(ninpo.id) && typeof ninpo.name === "string")
+    .map((ninpo) => ninpo.name.trim());
   const learns = (entry: { id: string; names: string[] }) => ids.includes(entry.id) || learnedNames.some((name) => entry.names.includes(name));
   return {
     closedGaps: character.closedGaps ?? [],
@@ -194,6 +196,10 @@ const FACTION_ALIASES: Record<string, string> = {
   比良坂機関: "比良坂机关",
   私立御斎学園: "私立御斋学园",
   私立御斋学院: "私立御斋学园",
+  御斋学园: "私立御斋学园",
+  御斎学園: "私立御斋学园",
+  御齋學園: "私立御斋学园",
+  私立御齋學園: "私立御斋学园",
   隠忍の血統: "隐忍血统",
   隐忍之血统: "隐忍血统",
 };
@@ -221,14 +227,15 @@ export function matchesSpecialtyGaps(character: { closedGaps?: boolean[]; outerG
 
 /** 习得时需要从中选定指定特技的候选；指定特技已固定、为「无」或「可变」时返回空数组。 */
 export function designatedSkillChoices(ninpo: Pick<Ninpo, "skill" | "skillOptions">): string[] {
-  if (ninpo.skillOptions?.length) {
+  if (Array.isArray(ninpo.skillOptions) && ninpo.skillOptions.length) {
     return ninpo.skillOptions.filter((skill, index, list) => ALL_SKILLS.includes(skill) && list.indexOf(skill) === index);
   }
   if (ninpo.skill === FREE_SKILL) return [...ALL_SKILLS];
   return [];
 }
 
-export type DesignatedSkillResolution = { skill: string | null; needsChoice: boolean; variable: boolean };
+/** noCheck：指定特技为「无」，使用时不进行行为判定。 */
+export type DesignatedSkillResolution = { skill: string | null; needsChoice: boolean; variable: boolean; noCheck?: boolean };
 
 /**
  * 解析忍法实际使用的指定特技。
@@ -239,7 +246,7 @@ export function resolveDesignatedSkill(
   ninpoSkills: Record<string, string> = {},
   key = ninpo.id,
 ): DesignatedSkillResolution {
-  if (ninpo.skill === NO_SKILL) return { skill: null, needsChoice: false, variable: false };
+  if (ninpo.skill === NO_SKILL) return { skill: null, needsChoice: false, variable: false, noCheck: true };
   if (ninpo.skill === VARIABLE_SKILL) return { skill: null, needsChoice: false, variable: true };
   const choices = designatedSkillChoices(ninpo);
   if (choices.length) {
@@ -379,6 +386,34 @@ export function actionOrder<T extends { plot: number | null }>(items: T[]): T[] 
     .map((item, index) => ({ item, index }))
     .sort((a, b) => (b.item.plot ?? -1) - (a.item.plot ?? -1) || a.index - b.index)
     .map(({ item }) => item);
+}
+
+/**
+ * 行动顺序变化（脱落、重新参战、布局改为 0）后重新定位当前行动者的下标。
+ * 当前行动者仍在顺序中且没有被移动时保持不变；当前行动者离开或被移到别处时，
+ * 由原顺序中排在其后、仍在等待的第一位接手；本回合已无人等待时回到 0（与「下一位」绕回一致）。
+ */
+export function reanchorTurnIndex(oldOrderIds: string[], turnIndex: number, newOrderIds: string[], movedId?: string): number {
+  if (!oldOrderIds.length || !newOrderIds.length) return 0;
+  const position = ((turnIndex % oldOrderIds.length) + oldOrderIds.length) % oldOrderIds.length;
+  const currentId = oldOrderIds[position];
+  if (currentId !== movedId && newOrderIds.includes(currentId)) return newOrderIds.indexOf(currentId);
+  for (let next = position + 1; next < oldOrderIds.length; next += 1) {
+    const candidate = oldOrderIds[next];
+    if (candidate !== movedId && newOrderIds.includes(candidate)) return newOrderIds.indexOf(candidate);
+  }
+  return 0;
+}
+
+/** 回合／战斗结束时清掉只在该回合有效的状态：布局、已用花费、已用忍法与「逆止」。 */
+export function clearBattleRoundState<T extends { plot: number | null; spentCost?: number; usedNinpoIds?: string[]; conditions: string[] }>(character: T): T {
+  return {
+    ...character,
+    plot: null,
+    spentCost: 0,
+    usedNinpoIds: [],
+    conditions: character.conditions.filter((item) => item !== "逆止"),
+  };
 }
 
 /** 攻击忍法只能在轮到自己行动时宣言，且一回合一次；GM 可为追加攻击等特例覆盖。支援、装备忍法不受限。 */
@@ -532,6 +567,8 @@ const NINPO_ALIASES: Record<string, string[]> = {
   close: ["接近戦攻撃"],
   shoot: ["射撃戦攻撃"],
   kamaitachi: ["鎌鼬"],
+  mokuren: ["木蓮"],
+  "makai-kogaku": ["魔界工學"],
 };
 
 function normalizeSkillName(value: string): string | null {

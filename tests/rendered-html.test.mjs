@@ -92,6 +92,32 @@ test("battle and sheet surfaces expose the v1.8 correctness controls", async () 
   assert.match(product, /草（NPC 用）/);
 });
 
+test("battle-scoped state does not leak past the battle and follows the current actor", async () => {
+  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const handlerBody = (name) => {
+    const start = product.indexOf(`const ${name} = `);
+    assert.notEqual(start, -1, `${name} exists`);
+    const next = product.indexOf("\n  const ", start + 1);
+    return product.slice(start, next === -1 ? undefined : next);
+  };
+  // 逆止自动失败只在攻击处理窗口内生效；场景、巡结束时清掉回合状态
+  assert.match(product, /const inReversal = hasReversalTag && inAttackWindow/);
+  assert.match(product, /「逆止」标签残留在战斗之外/);
+  for (const handler of ["completeScene", "newCycle", "newRound"]) {
+    assert.match(handlerBody(handler), /clearBattleRoundState/, `${handler} clears round-scoped state`);
+  }
+  // 行动顺序变化时重新定位当前行动者
+  assert.match(handlerBody("toggleActive"), /reanchorTurn\(/);
+  assert.match(handlerBody("setPlot"), /reanchorTurn\(/);
+  // 宣言支援忍法时用其花费抬高大失败值；指定特技「无」的忍法跳过命中判定
+  assert.match(handlerBody("declareNinpo"), /setSupportCostInput\(selectedNinpo\.cost\)/);
+  assert.match(handlerBody("declareNinpo"), /designation\.noCheck/);
+  // 导入后封锁记录清空时一并解除麻痹标签
+  assert.match(handlerBody("applyCharacterImport"), /paralyzedBefore\.length && !paralyzedAfter\.length/);
+  assert.match(product, /如需更正请在忍法配置修改/);
+  assert.doesNotMatch(product, /之后不可更改/);
+});
+
 test("sheet and check panel expose paralysis, skill table topology and specialty controls", async () => {
   const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
   assert.match(product, /usableSkills\(/, "the check panel shares the palette's usable-skill rule");

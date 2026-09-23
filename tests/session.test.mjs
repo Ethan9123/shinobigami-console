@@ -282,3 +282,26 @@ test("sample 月影 fills both gaps beside the 体术 specialty and has three �
   const issues = rules.evaluateCharacterBuild(tsukikage, initial.brief.requirements);
   assert.equal(issues.some((issue) => issue.code.startsWith("specialty-")), false, "the sample ships without specialty warnings");
 });
+
+test("malformed custom ninpo are dropped or coerced so the console can still render", () => {
+  const state = session.normalizeGameState({
+    characters: [{ id: "pc", role: "PC", skills: ["刀术"], ninpoIds: ["close", "x", "y", "z"], conditions: [] }],
+    customNinpo: [
+      { id: "x", name: 5 },
+      { id: "y", name: "自定义", kind: "奇怪", skill: "自由", skillOptions: "刀术", range: "3", cost: "abc" },
+      { id: "z", name: "多选", kind: "攻击", skill: "自由", skillOptions: ["刀术", 7, "掘削术"], range: 2, cost: 1, damage: "接近战伤害 1" },
+      "not-an-object",
+    ],
+  });
+  assert.deepEqual(state.customNinpo.map((ninpo) => ninpo.id), ["y", "z"], "entries without a string name are dropped");
+  const [loose, multi] = state.customNinpo;
+  assert.equal(loose.kind, "支援");
+  assert.equal(loose.skillOptions, undefined, "a non-array skillOptions is discarded");
+  assert.equal(loose.range, 3);
+  assert.equal(loose.cost, 0);
+  assert.deepEqual(multi.skillOptions, ["刀术", "挖掘术"]);
+  assert.equal(multi.damage, "接近战伤害 1");
+  const catalog = [...rules.COMMON_NINPO, ...state.customNinpo];
+  assert.doesNotThrow(() => rules.skillTableOptions(state.characters[0], catalog));
+  assert.doesNotThrow(() => rules.evaluateSessionReadiness(state.characters, state.handouts, state.brief.playerCount, state.brief.requirements, catalog));
+});

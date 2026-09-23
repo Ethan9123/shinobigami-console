@@ -305,6 +305,36 @@ function normalizeParalyzedSkills(value: unknown, skills: string[]): string[] {
     .filter((skill, index, list) => skills.includes(skill) && list.indexOf(skill) === index);
 }
 
+// 自定义忍法来自存档文件：只保留 id 与名称为字符串的条目，其余字段逐一校正类型，避免畸形存档让界面渲染崩溃
+function normalizeCustomNinpo(value: unknown): Ninpo[] {
+  if (!Array.isArray(value)) return [];
+  const kinds: Ninpo["kind"][] = ["攻击", "支援", "装备"];
+  return value.flatMap((entry): Ninpo[] => {
+    const item = record(entry);
+    const id = text(item.id);
+    const name = text(item.name).trim();
+    if (!id || !name) return [];
+    const kind = kinds.includes(text(item.kind) as Ninpo["kind"]) ? text(item.kind) as Ninpo["kind"] : "支援";
+    const ninpo: Ninpo = {
+      id,
+      name,
+      kind,
+      skill: migrateSkillName(text(item.skill, "自由")) || "自由",
+      range: number(item.range, 0, 0, 99),
+      cost: number(item.cost, 0, 0, 99),
+      summary: text(item.summary),
+    };
+    if (Array.isArray(item.skillOptions)) {
+      const options = stringList(item.skillOptions).map(migrateSkillName);
+      if (options.length) ninpo.skillOptions = options;
+    }
+    for (const key of ["damage", "serial", "school", "note"] as const) {
+      if (typeof item[key] === "string") ninpo[key] = item[key] as string;
+    }
+    return [ninpo];
+  });
+}
+
 function normalizeCharacter(value: unknown, index: number): Character {
   const raw = record(value);
   const lifeRaw = record(raw.life);
@@ -455,7 +485,7 @@ export function normalizeGameState(value: unknown): GameState | null {
     }),
     phase: phases.includes(text(raw.phase) as Phase) ? text(raw.phase) as Phase : "主要",
     turnIndex: number(raw.turnIndex, 0, 0, 999),
-    customNinpo: Array.isArray(raw.customNinpo) ? raw.customNinpo as Ninpo[] : [],
+    customNinpo: normalizeCustomNinpo(raw.customNinpo),
     cycle: number(raw.cycle, 1, 1, 999),
     sceneNumber: number(raw.sceneNumber, 1, 1, 999),
     sceneOwnerId: ids.has(text(raw.sceneOwnerId)) ? text(raw.sceneOwnerId) : firstPcId,
