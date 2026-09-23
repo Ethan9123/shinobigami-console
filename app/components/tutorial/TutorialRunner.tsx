@@ -14,6 +14,7 @@ import {
   setTutorialPaused,
 } from "../../lib/tutorial";
 import type { TutorialState } from "../../lib/tutorial";
+import type { ConsoleView } from "../console/context";
 
 type Props = {
   state: TutorialState;
@@ -21,7 +22,7 @@ type Props = {
   onChange: (next: TutorialState, eventText?: string) => void;
   onStart: (next: TutorialState) => void;
   onToggleTableSafe: () => void;
-  onOpenConsole: (view: "prep" | "battle" | "sheet" | "director") => void;
+  onOpenConsole: (view: ConsoleView) => void;
 };
 
 const outcomeLabels = {
