@@ -1,11 +1,26 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
+
+// v1.9 起控制台拆分为 ShinobigamiConsole.tsx 与 app/components/console/**，源码断言针对这组文件
+async function readConsoleSources() {
+  const urls = [new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url)];
+  const walk = async (dir) => {
+    const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (entry.isDirectory()) await walk(new URL(`${entry.name}/`, dir));
+      else if (/\.tsx?$/.test(entry.name)) urls.push(new URL(entry.name, dir));
+    }
+  };
+  await walk(new URL("../app/components/console/", import.meta.url));
+  return Promise.all(urls.map((url) => readFile(url, "utf8")));
+}
 
 test("product page replaces the starter preview", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const sources = await readConsoleSources();
+  const product = sources.join("\n");
   const chrome = await readFile(new URL("../app/lib/i18n.ts", import.meta.url), "utf8");
   const surface = product + chrome;
   const tutorial = await readFile(new URL("../app/components/tutorial/TutorialRunner.tsx", import.meta.url), "utf8");
@@ -60,9 +75,11 @@ test("product page replaces the starter preview", async () => {
 });
 
 test("check panel state is reset whenever the roller or turn changes", async () => {
-  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const sources = await readConsoleSources();
+  const product = sources.join("\n");
   const handlerBody = (name) => {
-    const match = product.match(new RegExp(`const ${name} = \\([^)]*\\) => \\{([\\s\\S]*?)\\n  \\};`));
+    const pattern = new RegExp(`const ${name} = \\([^)]*\\) => \\{([\\s\\S]*?)\\n  \\};`);
+    const match = sources.map((source) => source.match(pattern)).find(Boolean);
     assert.ok(match, `${name} handler should exist`);
     return match[1];
   };
@@ -80,7 +97,8 @@ test("check panel state is reset whenever the roller or turn changes", async () 
 });
 
 test("battle and sheet surfaces expose the v1.8 correctness controls", async () => {
-  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const sources = await readConsoleSources();
+  const product = sources.join("\n");
   assert.match(product, /本判定可在逆止中进行/);
   assert.match(product, /逆止：自动失败/);
   assert.match(product, /违规→0/);
@@ -93,12 +111,14 @@ test("battle and sheet surfaces expose the v1.8 correctness controls", async () 
 });
 
 test("battle-scoped state does not leak past the battle and follows the current actor", async () => {
-  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const sources = await readConsoleSources();
+  const product = sources.join("\n");
   const handlerBody = (name) => {
-    const start = product.indexOf(`const ${name} = `);
-    assert.notEqual(start, -1, `${name} exists`);
-    const next = product.indexOf("\n  const ", start + 1);
-    return product.slice(start, next === -1 ? undefined : next);
+    const source = sources.find((item) => item.includes(`const ${name} = `));
+    assert.ok(source, `${name} exists`);
+    const start = source.indexOf(`const ${name} = `);
+    const next = source.indexOf("\n  const ", start + 1);
+    return source.slice(start, next === -1 ? undefined : next);
   };
   // 逆止自动失败只在攻击处理窗口内生效；场景、巡结束时清掉回合状态
   assert.match(product, /const inReversal = hasReversalTag && inAttackWindow/);
@@ -119,7 +139,8 @@ test("battle-scoped state does not leak past the battle and follows the current 
 });
 
 test("sheet and check panel expose paralysis, skill table topology and specialty controls", async () => {
-  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const sources = await readConsoleSources();
+  const product = sources.join("\n");
   assert.match(product, /usableSkills\(/, "the check panel shares the palette's usable-skill rule");
   assert.match(product, /skillTableOptions\(/);
   assert.match(product, /applyParalysis\(/);
