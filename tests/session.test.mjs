@@ -55,8 +55,9 @@ test("legacy v7 save migrates losslessly to the v0.8 treasure schema", () => {
     phase: "主要",
   });
 
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, 9);
   assert.equal(migrated.selectedId, "legacy-pc");
+  assert.deepEqual(migrated.characters[0].ninpoSkills, {}, "legacy saves do not guess the free designated skill");
   assert.equal(migrated.brief.playerCount, 1);
   assert.equal(migrated.handouts.length, 1);
   assert.equal(migrated.handouts[0].assignedCharacterId, "legacy-pc");
@@ -120,7 +121,7 @@ test("treasures and background items are normalized against the roster", () => {
     ],
   });
 
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, 9);
   assert.deepEqual(migrated.characters[0].backgroundItems, [
     { id: "bg-1", serial: "10412", name: "夜市眼线", points: 3, category: "长处（社会）", effect: "情报判定获得加值" },
   ]);
@@ -156,4 +157,77 @@ test("attack pipeline advances only for the expected roller", () => {
   assert.equal(session.advanceResolutionAfterRoll(dodging, "defender", "成功").stage, "完成");
   assert.equal(session.advanceResolutionAfterRoll(dodging, "defender", "失败").stage, "效果结算");
   assert.equal(session.advanceResolutionAfterRoll(declared, "attacker", "大失败／逆止").stage, "完成");
+  assert.equal(session.advanceResolutionAfterRoll(declared, "attacker", "失败（逆止）").stage, "完成", "automatic reversal failure ends the attack");
+});
+
+test("v9 ninpoSkills keep only learned free ninpo with valid skills", () => {
+  const migrated = session.normalizeGameState({
+    schemaVersion: 8,
+    characters: [{
+      id: "pc-free",
+      name: "自由忍者",
+      role: "PC",
+      faction: "斜齿忍军",
+      rank: "中忍",
+      life: {},
+      skills: ["挖掘术"],
+      ninpoIds: ["close", "shoot"],
+      ninpoSkills: { close: "掘削术", shoot: "不存在的特技", blast: "火术", emotion: "刀术" },
+      tools: {},
+    }],
+  });
+  assert.equal(migrated.schemaVersion, 9);
+  assert.deepEqual(migrated.characters[0].ninpoSkills, { close: "挖掘术" }, "keys outside ninpoIds and unknown skills are dropped; legacy names migrate");
+
+  const bad = session.normalizeGameState({ characters: [{ id: "x", ninpoIds: ["close"], ninpoSkills: ["刀术"] }] });
+  assert.deepEqual(bad.characters[0].ninpoSkills, {});
+});
+
+test("plot values normalize to 0-6 so a plot violation can be stored", () => {
+  const migrated = session.normalizeGameState({
+    characters: [
+      { id: "a", plot: 0 },
+      { id: "b", plot: 7 },
+      { id: "c", plot: -1 },
+      { id: "d", plot: null },
+    ],
+  });
+  assert.deepEqual(migrated.characters.map((character) => character.plot), [0, 6, 0, null]);
+});
+
+test("resolution keeps the resolved designated skill and evasion anchors to it", () => {
+  const migrated = session.normalizeGameState({
+    characters: [{ id: "attacker" }, { id: "defender" }],
+    resolution: {
+      id: "r1",
+      actorId: "attacker",
+      targetId: "defender",
+      ninpoId: "close",
+      ninpoName: "接近战攻击",
+      ninpoKind: "攻击",
+      skill: "自由",
+      designatedSkill: "火术",
+      stage: "反应窗口",
+    },
+  });
+  assert.equal(migrated.resolution.designatedSkill, "火术");
+  assert.equal(session.evasionSkill(migrated.resolution), "火术");
+
+  const legacy = session.normalizeGameState({
+    characters: [{ id: "attacker" }, { id: "defender" }],
+    resolution: { actorId: "attacker", targetId: "defender", ninpoName: "接近战攻击", skill: "自由", stage: "回避判定" },
+  });
+  assert.equal(legacy.resolution.designatedSkill, undefined);
+  assert.equal(session.evasionSkill(legacy.resolution), null, "legacy free resolutions ask the player instead of guessing");
+  assert.equal(session.evasionSkill({ skill: "火术" }), "火术", "fixed designated skills are used directly");
+  assert.equal(session.evasionSkill({ skill: "无" }), null);
+});
+
+test("sample characters ship with designated skills for their free attacks", () => {
+  const initial = session.createInitialGameState();
+  assert.equal(initial.schemaVersion, 9);
+  for (const character of initial.characters) {
+    assert.ok(character.ninpoSkills.close, `${character.name} 的接近战攻击应有指定特技`);
+    assert.ok(character.ninpoSkills.shoot, `${character.name} 的射击战攻击应有指定特技`);
+  }
 });

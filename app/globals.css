@@ -157,7 +157,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .plot-row { display: grid; grid-template-columns: minmax(80px, 120px) minmax(300px, 1fr) 88px; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid #d3cdbf; }
 .plot-row:last-child { border-bottom: 0; }
 .plot-character { overflow: hidden; padding: 0; text-align: left; white-space: nowrap; text-overflow: ellipsis; border: 0; background: transparent; font-weight: 900; cursor: pointer; }
-.plot-options { display: grid; grid-template-columns: repeat(6, minmax(34px, 1fr)); gap: 5px; }
+.plot-options { display: grid; grid-template-columns: repeat(6, minmax(30px, 1fr)) auto; gap: 5px; }
+.plot-options button.plot-violation { aspect-ratio: auto; padding: 0 6px; font-size: 9px; white-space: nowrap; border-style: dashed; }
 .plot-options button { aspect-ratio: 1.3; border: 1px solid var(--ink); background: transparent; font: 900 13px/1 var(--font-mono); cursor: pointer; }
 .plot-options button:hover { background: var(--paper-deep); }
 .plot-options button.chosen { color: white; background: var(--red); box-shadow: 2px 2px 0 var(--ink); }
@@ -195,6 +196,9 @@ select, input { width: 100%; min-height: 38px; padding: 0 10px; color: var(--ink
 .target-number span { color: #aaa493; font-size: 8px; }
 .target-number strong { font: 900 29px/1 var(--font-mono); }
 .substitution { margin: 10px 14px; color: var(--muted); font-size: 10px; }
+.reversal-toggle, .override-toggle { display: flex; gap: 6px; align-items: flex-start; margin: 6px 14px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.odds-panel em { display: block; color: var(--red); font-size: 10px; font-style: normal; font-weight: 800; }
+.skill-unset { color: var(--red) !important; font-weight: 800; }
 .substitution b { color: var(--ink); }
 .substitution span { float: right; }
 .odds-panel { margin: 10px 14px; padding: 10px; border: 1px solid #b8b1a4; background: #f0ece2; }
@@ -345,7 +349,9 @@ textarea { width: 100%; min-height: 72px; padding: 9px 10px; resize: vertical; c
 .subsection-heading h3 { margin: 4px 0 0; font: 900 14px/1 var(--font-serif); }
 .subsection-heading small { color: #aaa493; font-size: 8px; }
 .ninpo-library { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #c9c3b6; }
-.ninpo-library > div { position: relative; display: flex; min-width: 0; background: var(--paper-light); }
+.ninpo-library > div { position: relative; display: flex; flex-wrap: wrap; min-width: 0; background: var(--paper-light); }
+.ninpo-skill-pick { display: flex; gap: 6px; align-items: center; width: 100%; padding: 0 10px 8px; color: var(--muted); font: 700 9px/1.2 var(--font-mono); }
+.ninpo-skill-pick select { min-width: 0; flex: 1; font-size: 11px; }
 .ninpo-library > div > button:first-child { display: grid; gap: 4px; width: 100%; padding: 10px 28px 10px 10px; text-align: left; border: 0; background: transparent; cursor: pointer; }
 .ninpo-library b { font-size: 11px; }
 .ninpo-library span { overflow: hidden; color: var(--muted); font: 700 8px/1.3 var(--font-mono); white-space: nowrap; text-overflow: ellipsis; }
@@ -399,6 +405,7 @@ textarea { width: 100%; min-height: 72px; padding: 9px 10px; resize: vertical; c
 .readiness-score strong { margin: 8px 0 5px; font: 900 23px/1 var(--font-serif); }
 .readiness-score p { margin: 0; color: #bcb6a8; font-size: 8px; }
 .readiness-issues { max-height: 250px; overflow: auto; }
+.readiness-issues article .issue-fix { grid-column: 2; justify-self: start; padding: 4px 8px; border: 1px solid var(--ink); background: transparent; font-size: 10px; font-weight: 800; cursor: pointer; }
 .readiness-issues article { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: center; min-height: 42px; padding: 8px 12px; border-bottom: 1px solid #d8d2c5; }
 .readiness-issues article > span { display: grid; place-items: center; width: 22px; height: 22px; color: white; background: var(--gold); font-weight: 900; }
 .readiness-issues article.blocker > span { background: var(--red); }

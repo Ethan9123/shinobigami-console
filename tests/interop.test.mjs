@@ -68,6 +68,22 @@ test("BCDice palette uses official ShinobiGami command syntax without bundling t
   assert.match(palette, /^ET 感情表$/m);
   assert.match(palette, /^RTT 随机特技$/m);
   assert.doesNotMatch(palette, /1D6|2D6|掷骰结果/);
+  assert.doesNotMatch(palette, /接近战攻击／自由/, "an unset free skill must not be exported as target 5");
+});
+
+test("free ninpo export the designated skill chosen at acquisition", () => {
+  const free = { ...character, skills: ["刀术"], closedGaps: [false, false, false, false, false], ninpoIds: ["close", "shoot"], ninpoSkills: { close: "火术", shoot: "刀术" } };
+  const palette = interop.createBCDicePalette(free, rules.COMMON_NINPO);
+  const distance = rules.skillDistance("刀术", "火术");
+  assert.equal(distance, 10);
+  assert.ok(palette.includes(`SG@12#2>=${5 + distance} 【接近战攻击／火术→刀术】`), palette);
+  assert.match(palette, /SG@12#2>=5 【射击战攻击／刀术】/);
+
+  const foundry = interop.createFoundryActor(free, rules.COMMON_NINPO);
+  const close = foundry.items.find((item) => item.type === "ability" && item.name === "接近战攻击");
+  assert.equal(close.system.talent, "火术");
+  const unset = interop.createFoundryActor({ ...free, ninpoSkills: {} }, rules.COMMON_NINPO);
+  assert.equal(unset.items.find((item) => item.name === "接近战攻击").system.talent, "");
 });
 
 test("CCFOLIA clipboard export is public by default and opt-in for private notes", () => {

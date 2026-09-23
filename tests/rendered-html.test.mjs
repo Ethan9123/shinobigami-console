@@ -58,3 +58,36 @@ test("product page replaces the starter preview", async () => {
   assert.match(tutorial, /安全工具/);
   assert.doesNotMatch(page + layout, /codex-preview|SkeletonPreview/);
 });
+
+test("check panel state is reset whenever the roller or turn changes", async () => {
+  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  const handlerBody = (name) => {
+    const match = product.match(new RegExp(`const ${name} = \\([^)]*\\) => \\{([\\s\\S]*?)\\n  \\};`));
+    assert.ok(match, `${name} handler should exist`);
+    return match[1];
+  };
+  for (const handler of ["declareNinpo", "beginDefense", "advanceTurn", "newRound", "selectCharacter"]) {
+    assert.match(handlerBody(handler), /resetCheckPanel\(\)/, `${handler} must reset the check panel`);
+  }
+  assert.match(handlerBody("resetCheckPanel"), /freshCheckInputs\(\)/);
+  assert.match(handlerBody("beginDefense"), /evasionSkill\(resolution\)/, "evasion anchors to the attack's designated skill");
+  assert.match(handlerBody("declareNinpo"), /尚未指定特技/);
+  assert.match(handlerBody("declareNinpo"), /canDeclareAttack\(/);
+  assert.match(handlerBody("declareNinpo"), /battleTargetCheck\(/);
+  assert.match(handlerBody("rollCheck"), /resolveCheckOutcome\(/);
+  // 角色栏与布局栏点选角色走同一个入口
+  assert.doesNotMatch(product, /onClick=\{\(\) => setSelectedId\(/);
+});
+
+test("battle and sheet surfaces expose the v1.8 correctness controls", async () => {
+  const product = await readFile(new URL("../app/components/ShinobigamiConsole.tsx", import.meta.url), "utf8");
+  assert.match(product, /本判定可在逆止中进行/);
+  assert.match(product, /逆止：自动失败/);
+  assert.match(product, /违规→0/);
+  assert.match(product, /布局 0：可无视距离/);
+  assert.match(product, /GM 覆盖/);
+  assert.match(product, /自由（习得时指定）/);
+  assert.match(product, /无（无需判定）/);
+  assert.match(product, /"下忍", "下忍头", "中忍"/);
+  assert.match(product, /草（NPC 用）/);
+});

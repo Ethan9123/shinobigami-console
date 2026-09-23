@@ -33,6 +33,8 @@ function resetCharacter(character: Character, id: string, role = character.role)
     life: Object.fromEntries(Object.keys(character.life).map((field) => [field, true])) as Character["life"],
     skills: [...character.skills],
     ninpoIds: [...character.ninpoIds],
+    // 「自由」忍法的指定特技属于构筑数据，随模板保留；v1.8 以前的库条目没有该字段时按 {} 处理
+    ninpoSkills: { ...(character.ninpoSkills ?? {}) },
     conditions: [],
     spentCost: 0,
     usedNinpoIds: [],

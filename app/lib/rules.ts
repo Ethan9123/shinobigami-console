@@ -11,11 +11,21 @@ export const SKILL_TABLE: Record<FieldName, string[]> = {
   妖术: ["异形化", "召唤术", "死灵术", "结界术", "封术", "言灵术", "幻术", "瞳术", "千里眼之术", "凭依术", "咒术"],
 };
 
+/** 特技表全部 66 项，按分野与行序排列。 */
+export const ALL_SKILLS: string[] = FIELD_NAMES.flatMap((field) => SKILL_TABLE[field]);
+
+/** 忍法「指定特技」栏的特殊取值：习得时自选／无需判定／每次判定可换。 */
+export const FREE_SKILL = "自由";
+export const NO_SKILL = "无";
+export const VARIABLE_SKILL = "可变";
+
 export type Ninpo = {
   id: string;
   name: string;
   kind: "攻击" | "支援" | "装备";
   skill: string;
+  /** 复数指定特技或「任意X术」：习得时从中选定 1 个。 */
+  skillOptions?: string[];
   range: number;
   cost: number;
   summary: string;
@@ -77,8 +87,45 @@ export function skillDistance(from: string, to: string, closedGaps: boolean[] = 
   return Math.abs(a.row - b.row) + horizontal;
 }
 
-export function nearestSkill(learned: string[], target: string, closedGaps: boolean[] = []) {
-  if (!target || target === "自由") return { skill: learned[0] ?? "未选择", distance: 0, target: 5, criticalOnly: !learned.length };
+/** 习得时需要从中选定指定特技的候选；指定特技已固定、为「无」或「可变」时返回空数组。 */
+export function designatedSkillChoices(ninpo: Pick<Ninpo, "skill" | "skillOptions">): string[] {
+  if (ninpo.skillOptions?.length) {
+    return ninpo.skillOptions.filter((skill, index, list) => ALL_SKILLS.includes(skill) && list.indexOf(skill) === index);
+  }
+  if (ninpo.skill === FREE_SKILL) return [...ALL_SKILLS];
+  return [];
+}
+
+export type DesignatedSkillResolution = { skill: string | null; needsChoice: boolean; variable: boolean };
+
+/**
+ * 解析忍法实际使用的指定特技。
+ * ninpoSkills 以角色 ninpoIds 中的条目为键（为将来同名※忍法的多实例预留），值为习得时选定的特技。
+ */
+export function resolveDesignatedSkill(
+  ninpo: Pick<Ninpo, "id" | "skill" | "skillOptions">,
+  ninpoSkills: Record<string, string> = {},
+  key = ninpo.id,
+): DesignatedSkillResolution {
+  if (ninpo.skill === NO_SKILL) return { skill: null, needsChoice: false, variable: false };
+  if (ninpo.skill === VARIABLE_SKILL) return { skill: null, needsChoice: false, variable: true };
+  const choices = designatedSkillChoices(ninpo);
+  if (choices.length) {
+    const chosen = ninpoSkills[key];
+    return chosen && choices.includes(chosen)
+      ? { skill: chosen, needsChoice: false, variable: false }
+      : { skill: null, needsChoice: true, variable: false };
+  }
+  return { skill: ninpo.skill, needsChoice: false, variable: false };
+}
+
+export type SkillCheck = { skill: string; distance: number; target: number; criticalOnly: boolean; unresolved?: boolean };
+
+// 「自由」尚未解析为具体特技：不再冒充目标值 5，按“无可用特技”保守处理并带 unresolved 标记，调用方应先解析指定特技。
+const UNRESOLVED_CHECK: SkillCheck = { skill: "未指定特技", distance: 8, target: 13, criticalOnly: true, unresolved: true };
+
+export function nearestSkill(learned: string[], target: string, closedGaps: boolean[] = []): SkillCheck {
+  if (!target || target === FREE_SKILL) return { ...UNRESOLVED_CHECK };
   if (!learned.length) return { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true };
   const sorted = learned
     .map((skill) => ({ skill, distance: skillDistance(skill, target, closedGaps) }))
@@ -91,11 +138,8 @@ export function substituteSkill(
   target: string,
   selectedSkill: string,
   closedGaps: boolean[] = [],
-) {
-  if (!target || target === "自由") {
-    const skill = learned.includes(selectedSkill) ? selectedSkill : learned[0] ?? "未选择";
-    return { skill, distance: 0, target: 5, criticalOnly: !learned.length };
-  }
+): SkillCheck {
+  if (!target || target === FREE_SKILL) return { ...UNRESOLVED_CHECK };
   if (!learned.length) return { skill: "无可用特技", distance: 8, target: 13, criticalOnly: true };
   if (!learned.includes(selectedSkill)) return nearestSkill(learned, target, closedGaps);
   const distance = skillDistance(selectedSkill, target, closedGaps);
@@ -111,8 +155,117 @@ export function checkFumbleLine({
   plot?: number | null;
   supportCost?: number;
 } = {}) {
-  if (inAttackWindow && plot != null) return Math.max(1, Math.min(11, Math.floor(plot)));
+  // 布局值 0（布局违规、一般人）：攻击顺序按 0 处理，但大失败值视为 2
+  if (inAttackWindow && plot != null) return Math.floor(plot) <= 0 ? 2 : Math.min(11, Math.floor(plot));
   return Math.max(1, Math.min(11, 2 + Math.max(0, Math.floor(supportCost))));
+}
+
+export type CheckOutcome = { result: string; achieved: number };
+
+/**
+ * 行为判定结果。大成功、大失败只看修正前骰点；无可用特技时只有大成功算成功。
+ * 逆止中的行为判定自动失败、达成值视为 0；奥义或写明可在逆止中使用的效果可豁免。
+ */
+export function resolveCheckOutcome({
+  raw,
+  modifier = 0,
+  target,
+  criticalOnly = false,
+  fumbleLine = 2,
+  special = 12,
+  inAttackWindow = false,
+  reversed = false,
+  reversalExempt = false,
+}: {
+  raw: number;
+  modifier?: number;
+  target: number;
+  criticalOnly?: boolean;
+  fumbleLine?: number;
+  special?: number;
+  inAttackWindow?: boolean;
+  reversed?: boolean;
+  reversalExempt?: boolean;
+}): CheckOutcome {
+  if (reversed && !reversalExempt) return { result: "失败（逆止）", achieved: 0 };
+  const achieved = raw + modifier;
+  let result = !criticalOnly && achieved >= target ? "成功" : "失败";
+  if (raw >= special) result = "大成功";
+  if (raw <= fumbleLine) result = inAttackWindow ? "大失败／逆止" : "大失败";
+  return { result, achieved };
+}
+
+export type CheckInputs = { substituteSkillChoice: string; modifier: number; diceCount: number; supportCost: number; reversalExempt: boolean };
+
+/** 判定面板在换人、换回合时回到的初始输入：代用选择、修正、骰池与花费都不跨判定沿用。 */
+export function freshCheckInputs(): CheckInputs {
+  return { substituteSkillChoice: "auto", modifier: 0, diceCount: 2, supportCost: 0, reversalExempt: false };
+}
+
+export type BattleTargetCheck = { ok: boolean; distance: number | null; exempt: boolean; reason?: string };
+
+/**
+ * 忍法目标的距离检查。目标布局值为 0 且攻方布局 ≥1 时无视距离；
+ * 一般人只能以布局值等于预测值或为 0 的角色为目标（此时不看距离）。
+ */
+export function battleTargetCheck({
+  attackerPlot,
+  targetPlot,
+  range,
+  attackerIsOrdinary = false,
+  prediction = null,
+}: {
+  attackerPlot: number | null | undefined;
+  targetPlot: number | null | undefined;
+  range: number;
+  attackerIsOrdinary?: boolean;
+  prediction?: number | null;
+}): BattleTargetCheck {
+  if (attackerPlot == null || targetPlot == null) return { ok: true, distance: null, exempt: false };
+  const distance = Math.abs(attackerPlot - targetPlot);
+  if (attackerIsOrdinary) {
+    return targetPlot <= 0 || (prediction != null && targetPlot === prediction)
+      ? { ok: true, distance, exempt: true }
+      : { ok: false, distance, exempt: false, reason: `一般人只能攻击布局值等于预测值${prediction == null ? "" : ` ${prediction}`}或为 0 的角色` };
+  }
+  if (targetPlot <= 0 && attackerPlot >= 1) return { ok: true, distance, exempt: true };
+  return distance > range
+    ? { ok: false, distance, exempt: false, reason: `距离 ${distance} 超过忍法距离 ${range}` }
+    : { ok: true, distance, exempt: false };
+}
+
+/** 行动顺序：布局值由高到低，布局 0 排在有布局者的最后，未设置布局的再往后；同布局保持原顺序。 */
+export function actionOrder<T extends { plot: number | null }>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => (b.item.plot ?? -1) - (a.item.plot ?? -1) || a.index - b.index)
+    .map(({ item }) => item);
+}
+
+/** 攻击忍法只能在轮到自己行动时宣言，且一回合一次；GM 可为追加攻击等特例覆盖。支援、装备忍法不受限。 */
+export function canDeclareAttack({
+  kind,
+  revealed,
+  actorId,
+  currentActorId,
+  currentActorName,
+  attackedThisTurn,
+  gmOverride = false,
+}: {
+  kind: Ninpo["kind"];
+  revealed: boolean;
+  actorId: string;
+  currentActorId: string | null | undefined;
+  currentActorName?: string;
+  attackedThisTurn: boolean;
+  gmOverride?: boolean;
+}): string[] {
+  if (kind !== "攻击" || gmOverride) return [];
+  const problems: string[] = [];
+  if (!revealed) problems.push("布局公开前不能宣言攻击忍法");
+  else if (currentActorId && actorId !== currentActorId) problems.push(`攻击忍法只能在自己行动时宣言（当前行动者：${currentActorName ?? "其他角色"}）`);
+  if (attackedThisTurn) problems.push("本回合已经进行过攻击（攻击忍法一回合只能宣言一次）");
+  return problems;
 }
 
 export type CheckOdds = {
@@ -129,7 +282,10 @@ export function calculateCheckOdds(
   special = 12,
   fumble = 2,
   criticalOnly = false,
+  reversed = false,
 ): CheckOdds {
+  // 逆止中的行为判定自动失败：连大成功也不会发生
+  if (reversed) return { success: 0, critical: 0, fumble: 0, ordinarySuccess: 0 };
   const safeCount = Math.max(2, Math.min(6, Math.floor(diceCount)));
   const totalOutcomes = 6 ** safeCount;
   let critical = 0;
@@ -232,6 +388,19 @@ const SKILL_ALIASES: Record<string, string> = {
   呪術: "咒术",
 };
 
+// 泛用忍法的日文写法（戦≠战、鎌≠镰，简中名 includes 匹配不到）
+const NINPO_ALIASES: Record<string, string[]> = {
+  close: ["接近戦攻撃"],
+  shoot: ["射撃戦攻撃"],
+  kamaitachi: ["鎌鼬"],
+};
+
+function normalizeSkillName(value: string): string | null {
+  const trimmed = value.trim().replace(/^[《〈【「]|[》〉】」]$/g, "");
+  if (ALL_SKILLS.includes(trimmed)) return trimmed;
+  return SKILL_ALIASES[trimmed] ?? null;
+}
+
 export type ParsedCharacterText = {
   name?: string;
   faction?: string;
@@ -258,6 +427,8 @@ export type ParsedCharacterText = {
   ougiWeakness?: string;
   skills: string[];
   ninpoIds: string[];
+  /** 「自由」忍法在卡面上写明的指定特技，如“接近战攻击（刀术）”。 */
+  ninpoSkills: Record<string, string>;
   backgroundItems: BackgroundItem[];
   recognized: number;
 };
@@ -267,7 +438,7 @@ const BACKGROUND_LINE = /^(\d{3,5})\s+(\S+)\s+(-?\d+)\s*((?:长处|短处|長處
 
 export function parseCharacterText(input: string): ParsedCharacterText {
   const text = input.replace(/\r/g, "").trim();
-  const result: ParsedCharacterText = { skills: [], ninpoIds: [], backgroundItems: [], recognized: 0 };
+  const result: ParsedCharacterText = { skills: [], ninpoIds: [], ninpoSkills: {}, backgroundItems: [], recognized: 0 };
   if (!text) return result;
 
   const labels: Array<[keyof Pick<ParsedCharacterText, "name" | "faction" | "condition" | "style" | "rank" | "player" | "age" | "gender" | "cover" | "belief" | "enemy" | "surface" | "story" | "backgrounds" | "mission" | "secret" | "ougi" | "ougiSkill" | "ougiEffect" | "ougiStrength" | "ougiWeakness">, RegExp]> = [
@@ -349,7 +520,21 @@ export function parseCharacterText(input: string): ParsedCharacterText {
     if (text.includes(alias) && !result.skills.includes(normalized)) result.skills.push(normalized);
   }
   for (const ninpo of COMMON_NINPO) {
-    if (text.includes(ninpo.name)) result.ninpoIds.push(ninpo.id);
+    const names = [ninpo.name, ...(NINPO_ALIASES[ninpo.id] ?? [])];
+    const found = names.filter((name) => text.includes(name));
+    if (!found.length) continue;
+    result.ninpoIds.push(ninpo.id);
+    if (!designatedSkillChoices(ninpo).length) continue;
+    // 识别“接近战攻击（刀术）”“接近戦攻撃《刀術》”“接近战攻击／刀术”这类写明指定特技的写法
+    for (const name of found) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const hit = text.match(new RegExp(`${escaped}\\s*(?:[（(《〈【「]\\s*([^）)》〉】」\\n]{1,8}?)\\s*[）)》〉】」]|[／/:：]\\s*《?([^\\s、，,。／/》]{1,8})》?)`));
+      const skill = hit ? normalizeSkillName(hit[1] ?? hit[2] ?? "") : null;
+      if (skill) {
+        result.ninpoSkills[ninpo.id] = skill;
+        break;
+      }
+    }
   }
   const merit = text.match(/(?:功绩点|功績點|功績)\s*[：:]\s*(-?\d+)/i);
   if (merit) result.merit = Number(merit[1]);
@@ -372,6 +557,7 @@ export type PreflightCharacter = {
   faction: string;
   skills: string[];
   ninpoIds: string[];
+  ninpoSkills?: Record<string, string>;
   mission: string;
   secret: string;
   tools: Record<string, number>;
@@ -393,11 +579,20 @@ export type ReadinessIssue = {
   message: string;
   characterId?: string;
   handoutId?: string;
+  /** 一键修复建议：为某个「自由」忍法指定特技。 */
+  fix?: { ninpoId: string; skill: string };
 };
+
+/** 为「自由」忍法建议一个默认指定特技：按角色卡顺序取第一个可选的已习得特技，否则取候选首项。 */
+export function suggestDesignatedSkill(ninpo: Pick<Ninpo, "skill" | "skillOptions">, learned: string[]): string | null {
+  const choices = designatedSkillChoices(ninpo);
+  return learned.find((skill) => choices.includes(skill)) ?? choices[0] ?? null;
+}
 
 export function evaluateCharacterBuild(
   character: PreflightCharacter,
   requirements: BuildRequirements,
+  ninpoCatalog: Ninpo[] = COMMON_NINPO,
 ): ReadinessIssue[] {
   const issues: ReadinessIssue[] = [];
   // v1.1 以前曾把系统动作“感情修正”保存成伪忍法；迁移时不能让它占用忍法槽。
@@ -412,6 +607,18 @@ export function evaluateCharacterBuild(
   }
   if (!character.ninpoIds.includes("close")) {
     issues.push({ code: "missing-basic-attack", level: "blocker", characterId: character.id, message: `${character.name} 缺少不占槽位的接近战攻击。` });
+  }
+  for (const ninpoId of Array.from(new Set(character.ninpoIds))) {
+    const ninpo = ninpoCatalog.find((item) => item.id === ninpoId);
+    if (!ninpo || !resolveDesignatedSkill(ninpo, character.ninpoSkills ?? {}).needsChoice) continue;
+    const suggestion = suggestDesignatedSkill(ninpo, character.skills);
+    issues.push({
+      code: "free-skill-unset",
+      level: "blocker",
+      characterId: character.id,
+      message: `${character.name} 的【${ninpo.name}】尚未指定特技（习得时须从「${ninpo.skill}」中选定 1 个${suggestion ? `；建议：${suggestion}` : ""}）。`,
+      fix: suggestion ? { ninpoId, skill: suggestion } : undefined,
+    });
   }
   if (character.skills.length !== requirements.requiredSkills) {
     issues.push({
@@ -445,6 +652,7 @@ export function evaluateSessionReadiness(
   handouts: PreflightHandout[],
   playerCount: number,
   requirements: BuildRequirements,
+  ninpoCatalog: Ninpo[] = COMMON_NINPO,
 ): ReadinessIssue[] {
   const issues: ReadinessIssue[] = [];
   const pcs = characters.filter((character) => character.role === "PC");
@@ -486,7 +694,7 @@ export function evaluateSessionReadiness(
       });
     }
   }
-  for (const character of pcs) issues.push(...evaluateCharacterBuild(character, requirements));
+  for (const character of pcs) issues.push(...evaluateCharacterBuild(character, requirements, ninpoCatalog));
   return issues;
 }
 

@@ -1,4 +1,4 @@
-import { FIELD_NAMES, SKILL_TABLE, nearestSkill } from "./rules";
+import { FIELD_NAMES, SKILL_TABLE, nearestSkill, resolveDesignatedSkill } from "./rules";
 import type { Ninpo } from "./rules";
 import type { Character } from "./session";
 
@@ -84,9 +84,12 @@ export function createBCDicePalette(character: Character, ninpo: Ninpo[], option
 
   for (const item of learnedNinpo(character, ninpo)) {
     if (item.kind === "装备") continue;
-    const check = nearestSkill(usable, item.skill, character.closedGaps);
-    const substitute = item.skill !== "自由" && check.skill !== item.skill ? `→${check.skill}` : "";
-    commands.push(sgCommand(check.criticalOnly ? 99 : check.target, `${item.name}／${item.skill}${substitute}`, special, fumble));
+    // 「自由」忍法按习得时选定的特技出命令；尚未指定、「无」或「可变」的忍法没有固定目标值，不输出
+    const designated = resolveDesignatedSkill(item, character.ninpoSkills ?? {}).skill;
+    if (!designated) continue;
+    const check = nearestSkill(usable, designated, character.closedGaps);
+    const substitute = check.skill !== designated ? `→${check.skill}` : "";
+    commands.push(sgCommand(check.criticalOnly ? 99 : check.target, `${item.name}／${designated}${substitute}`, special, fumble));
   }
 
   commands.push("ET 感情表", "FT ファンブル表", "WT 変調表", "BT 戦场表", "ST 场景表", "RCT 随机分野", "RTT 随机特技");
@@ -170,7 +173,7 @@ function foundryItems(character: Character, ninpo: Ninpo[], includePrivate: bool
     type: "ability",
     system: {
       type: item.kind,
-      talent: item.skill === "自由" ? "" : item.skill,
+      talent: resolveDesignatedSkill(item, character.ninpoSkills ?? {}).skill ?? "",
       gap: item.range >= 99 ? "" : String(item.range),
       cost: item.cost ? String(item.cost) : "",
       hidden: false,

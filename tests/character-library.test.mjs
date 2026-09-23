@@ -58,6 +58,17 @@ test("loading a library entry creates an independent fresh character", () => {
   assert.equal(entry.character.backgroundItems[0].name, "旧伤");
 });
 
+test("library keeps free designated skills as build data and tolerates legacy entries", () => {
+  const [entry] = library.upsertCharacterLibrary([], { ...character, ninpoSkills: { close: "刀术" } }, { id: "entry-1", savedAt: "2026-08-12T00:00:00.000Z" });
+  const loaded = library.materializeCharacter(entry, "pc-new", "PC");
+  assert.deepEqual(loaded.ninpoSkills, { close: "刀术" });
+  loaded.ninpoSkills.close = "走法";
+  assert.equal(entry.character.ninpoSkills.close, "刀术", "the template is not mutated through the loaded copy");
+
+  const [legacy] = library.normalizeCharacterLibrary([{ schemaVersion: 1, id: "old", savedAt: "2026-08-01T00:00:00.000Z", character }]);
+  assert.deepEqual(legacy.character.ninpoSkills, {});
+});
+
 test("saving the same identity updates instead of duplicating", () => {
   const first = library.upsertCharacterLibrary([], character, { id: "entry-1", savedAt: "2026-08-11T00:00:00.000Z" });
   const second = library.upsertCharacterLibrary(first, { ...character, skills: [...character.skills, "走法"] }, { savedAt: "2026-08-12T00:00:00.000Z" });

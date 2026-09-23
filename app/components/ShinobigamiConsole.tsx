@@ -2,20 +2,27 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  actionOrder,
   BackgroundItem,
+  battleTargetCheck,
   calculateCheckOdds,
+  canDeclareAttack,
   COMMON_NINPO,
   CONDITIONS,
+  designatedSkillChoices,
   EMOTION_PAIRS,
   evaluateSessionReadiness,
   FIELD_NAMES,
   FieldName,
   findSkillPosition,
   checkFumbleLine,
+  freshCheckInputs,
   makeLife,
   nearestSkill,
   Ninpo,
   parseCharacterText,
+  resolveCheckOutcome,
+  resolveDesignatedSkill,
   rollD6,
   SKILL_TABLE,
   substituteSkill,
@@ -24,6 +31,7 @@ import {
 import {
   advanceResolutionAfterRoll,
   createInitialGameState,
+  evasionSkill,
   makeDefaultHandouts,
   normalizeGameState,
   starterLogs,
@@ -71,6 +79,15 @@ import type { CharacterLibraryEntry } from "../lib/character-library";
 
 const STORAGE_KEY = "shinobigami-console-v1";
 const INITIAL_STATE = createInitialGameState();
+const RANK_OPTIONS = ["下忍", "下忍头", "中忍", "中忍头", "上忍", "上忍头", "头领"];
+
+/** 指定特技下拉：按分野分组，只列出候选特技。 */
+function SkillOptions({ choices }: { choices: string[] }) {
+  return <>{FIELD_NAMES.map((field) => {
+    const skills = SKILL_TABLE[field].filter((skill) => choices.includes(skill));
+    return skills.length ? <optgroup label={field} key={field}>{skills.map((skill) => <option value={skill} key={skill}>{skill}</option>)}</optgroup> : null;
+  })}</>;
+}
 
 function cloneState(state: GameState): GameState {
   return JSON.parse(JSON.stringify(state)) as GameState;
@@ -101,6 +118,8 @@ export default function ShinobigamiConsole() {
   const [diceInput, setDiceInput] = useState("");
   const [diceHint, setDiceHint] = useState("");
   const [supportCostInput, setSupportCostInput] = useState(0);
+  const [reversalExempt, setReversalExempt] = useState(false);
+  const [attackOverride, setAttackOverride] = useState(false);
   const [sideView, setSideView] = useState<"log" | "rules" | "assistant">("assistant");
   const [customName, setCustomName] = useState("");
   const [customSkill, setCustomSkill] = useState("刀术");
@@ -195,6 +214,8 @@ export default function ShinobigamiConsole() {
   const activeNinpoId = selected?.ninpoIds.includes(selectedNinpoId) && requestedNinpo?.kind !== "装备" ? selectedNinpoId : firstActiveNinpo?.id ?? "close";
   const selectedNinpo = allNinpo.find((ninpo) => ninpo.id === activeNinpoId) ?? COMMON_NINPO[0];
   const learnedNinpo = selected ? allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id) && ninpo.kind !== "装备") : COMMON_NINPO.slice(0, 2);
+  const selectedDesignation = resolveDesignatedSkill(selectedNinpo, selected?.ninpoSkills ?? {});
+  const selectedNinpoChoices = designatedSkillChoices(selectedNinpo);
   const availableSkills = useMemo(
     () => (selected?.skills ?? []).filter((skill) => {
       const position = findSkillPosition(skill);
@@ -207,15 +228,18 @@ export default function ShinobigamiConsole() {
     ? automaticCheck
     : substituteSkill(availableSkills, targetSkill, substituteSkillChoice, selected?.closedGaps ?? []);
   const battleOrder = useMemo(
-    () => characters.filter((character) => character.active).sort((a, b) => (b.plot ?? -1) - (a.plot ?? -1)),
+    () => actionOrder(characters.filter((character) => character.active)),
     [characters],
   );
   const currentActor = battleOrder.length ? battleOrder[turnIndex % battleOrder.length] : null;
   const inAttackWindow = view === "battle" && revealed;
   const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected?.plot, supportCost: inAttackWindow ? 0 : supportCostInput });
+  // 逆止中的行为判定自动失败；奥义或写明可在逆止中使用的忍法由判定面板复选框豁免
+  const inReversal = Boolean(selected?.conditions.includes("逆止"));
+  const reversedCheck = inReversal && !reversalExempt;
   const odds = useMemo(
-    () => calculateCheckOdds(diceCount, check.target, modifier, 12, fumbleLine, check.criticalOnly),
-    [check.criticalOnly, check.target, diceCount, modifier, fumbleLine],
+    () => calculateCheckOdds(diceCount, check.target, modifier, 12, fumbleLine, check.criticalOnly, reversedCheck),
+    [check.criticalOnly, check.target, diceCount, modifier, fumbleLine, reversedCheck],
   );
   const importPreview = useMemo(() => parseCharacterText(importText), [importText]);
   const filteredTranscript = useMemo(() => {
@@ -264,8 +288,8 @@ export default function ShinobigamiConsole() {
     [brief.title, cycle, gmBrief.spotlight.name, gmBrief.tension, lockedSceneCards, sceneAction, sceneDeckNonce, sceneNumber],
   );
   const preflightIssues = useMemo(
-    () => evaluateSessionReadiness(characters, handouts, brief.playerCount, brief.requirements),
-    [brief, characters, handouts],
+    () => evaluateSessionReadiness(characters, handouts, brief.playerCount, brief.requirements, allNinpo),
+    [allNinpo, brief, characters, handouts],
   );
   const prepBlockers = preflightIssues.filter((issue) => issue.level === "blocker");
   const prepWarnings = preflightIssues.filter((issue) => issue.level === "warning");
@@ -362,7 +386,7 @@ export default function ShinobigamiConsole() {
     if (!hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      schemaVersion: 8,
+      schemaVersion: 9,
       characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
       cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, treasures,
       brief, handouts, resolution, tutorial, transcript, replay,
@@ -382,7 +406,7 @@ export default function ShinobigamiConsole() {
   }, [characterLibrary, hydrated]);
 
   const currentState = (): GameState => ({
-    schemaVersion: 8,
+    schemaVersion: 9,
     characters, selectedId, round, revealed, logs, phase, turnIndex, customNinpo,
     cycle, sceneNumber, sceneOwnerId, sceneParticipantIds, sceneAction, sceneNote, emotions, intel, cues, trackers, treasures,
     brief, handouts, resolution, tutorial, transcript, replay,
@@ -393,6 +417,28 @@ export default function ShinobigamiConsole() {
   };
   const updateCharacter = (id: string, patch: Partial<Character>) => {
     setCharacters((items) => items.map((character) => character.id === id ? { ...character, ...patch } : character));
+  };
+  // 代用选择、修正、骰池、支援花费与逆止豁免都属于“这一次判定”，换人或换回合时不得沿用
+  const resetCheckPanel = () => {
+    const fresh = freshCheckInputs();
+    setSubstituteSkillChoice(fresh.substituteSkillChoice);
+    setModifier(fresh.modifier);
+    setDiceCount(fresh.diceCount);
+    setSupportCostInput(fresh.supportCost);
+    setReversalExempt(fresh.reversalExempt);
+    setLastRoll(null);
+  };
+  const selectCharacter = (id: string) => {
+    if (id !== selectedId) resetCheckPanel();
+    setSelectedId(id);
+  };
+  const setNinpoSkill = (character: Character, ninpo: Ninpo, skill: string) => {
+    checkpoint();
+    const ninpoSkills = { ...(character.ninpoSkills ?? {}) };
+    if (skill) ninpoSkills[ninpo.id] = skill;
+    else delete ninpoSkills[ninpo.id];
+    updateCharacter(character.id, { ninpoSkills });
+    addLog(skill ? `${character.name} 的【${ninpo.name}】指定特技定为《${skill}》。` : `${character.name} 的【${ninpo.name}】已清除指定特技。`, "system");
   };
 
   const undo = () => {
@@ -433,7 +479,7 @@ export default function ShinobigamiConsole() {
       id,
       name: role === "PC" ? `新忍者 ${characters.filter((c) => c.role === "PC").length + 1}` : `新敌人 ${characters.filter((c) => c.role === "NPC").length + 1}`,
       role, faction: "未选择流派", rank: "中忍", plot: null, active: true, extraLife: 0, life: makeLife(),
-      skills: ["刀术"], ninpoIds: ["close", "shoot"], conditions: [], spentCost: 0, usedNinpoIds: [],
+      skills: ["刀术"], ninpoIds: ["close", "shoot"], ninpoSkills: {}, conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "", secret: "", ougi: "", closedGaps: [false, false, false, false, false], acted: false,
       player: "", age: "", gender: "", cover: "", belief: "", merit: 0, enemy: "", surface: "", story: "", backgrounds: "", backgroundItems: [], portrait: "",
       subFaction: "", condition: "", style: "",
@@ -441,7 +487,7 @@ export default function ShinobigamiConsole() {
       tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 0 },
     };
     setCharacters((items) => [...items, character]);
-    setSelectedId(id);
+    selectCharacter(id);
     addLog(`${character.name} 已加入角色列表。`, "system");
   };
 
@@ -450,7 +496,7 @@ export default function ShinobigamiConsole() {
     checkpoint();
     const remaining = characters.filter((character) => character.id !== selected.id);
     setCharacters(remaining);
-    setSelectedId(remaining[0].id);
+    selectCharacter(remaining[0].id);
     setEmotions((items) => items.filter((emotion) => emotion.fromId !== selected.id && emotion.toId !== selected.id));
     setIntel((items) => items.filter((record) => record.subjectId !== selected.id).map((record) => ({ ...record, knownBy: record.knownBy.filter((id) => id !== selected.id) })));
     setHandouts((items) => items.map((handout) => handout.assignedCharacterId === selected.id ? { ...handout, assignedCharacterId: "", reviewed: false } : handout));
@@ -548,7 +594,7 @@ export default function ShinobigamiConsole() {
     if (!gmBrief.spotlight.id) return;
     checkpoint();
     setSceneOwnerId(gmBrief.spotlight.id);
-    setSelectedId(gmBrief.spotlight.id);
+    selectCharacter(gmBrief.spotlight.id);
     setSceneParticipantIds((items) => items.includes(gmBrief.spotlight.id) ? items : [...items, gmBrief.spotlight.id]);
     addLog(`聚光灯交给 ${gmBrief.spotlight.name}；请先询问玩家想让这一幕发生什么。`, "system");
   };
@@ -800,6 +846,7 @@ export default function ShinobigamiConsole() {
       ougiWeakness: importPreview.ougiWeakness ?? selected.ougiWeakness,
       skills: importPreview.skills.length ? importPreview.skills : selected.skills,
       ninpoIds: importPreview.ninpoIds.length ? Array.from(new Set([...selected.ninpoIds, ...importPreview.ninpoIds])) : selected.ninpoIds,
+      ninpoSkills: { ...(selected.ninpoSkills ?? {}), ...importPreview.ninpoSkills },
     });
     addLog(`已从纯文字角色卡识别 ${importPreview.recognized} 个字段并更新 ${importPreview.name ?? selected.name}。`, "system");
     setImportText("");
@@ -839,7 +886,7 @@ export default function ShinobigamiConsole() {
     checkpoint();
     const character = materializeCharacter(entry, uid("pc"), "PC");
     setCharacters((items) => [...items, character]);
-    setSelectedId(character.id);
+    selectCharacter(character.id);
     setView("sheet");
     setCharacterLibraryStatus(`已把「${character.name}」作为新的 PC 加入本次会话。`);
     addLog(`${character.name} 已从本地角色库加入角色列表。`, "system");
@@ -994,6 +1041,11 @@ export default function ShinobigamiConsole() {
   const setPlot = (character: Character, plot: number) => {
     checkpoint();
     updateCharacter(character.id, { plot });
+    if (plot <= 0) {
+      // 布局违规在公开时才判明：记为 0 不重新隐藏布局
+      addLog(`${character.name} 布局违规（无骰、骰数超出或超出限制范围），布局值记为 0：行动排在最后，大失败值为 2，布局 1 以上的角色攻击其时无视距离。`, "danger");
+      return;
+    }
     setRevealed(false);
     addLog(`${character.name} 已秘密设置布局。`, "system");
   };
@@ -1002,7 +1054,7 @@ export default function ShinobigamiConsole() {
     checkpoint();
     setRevealed(true);
     setTurnIndex(0);
-    if (battleOrder[0]) setSelectedId(battleOrder[0].id);
+    if (battleOrder[0]) selectCharacter(battleOrder[0].id);
     const summary = battleOrder.map((character) => `${character.name} ${character.plot ?? "?"}`).join("／");
     addLog(`布局公开：${summary}`, "action");
   };
@@ -1015,6 +1067,8 @@ export default function ShinobigamiConsole() {
     }
     checkpoint();
     setResolution(null);
+    resetCheckPanel();
+    setAttackOverride(false);
     const nextIndex = (turnIndex + 1) % battleOrder.length;
     setTurnIndex(nextIndex);
     setSelectedId(battleOrder[nextIndex].id);
@@ -1030,7 +1084,8 @@ export default function ShinobigamiConsole() {
     setResolution(null);
     setRound((value) => value + 1);
     setRevealed(false);
-    setLastRoll(null);
+    resetCheckPanel();
+    setAttackOverride(false);
     setTurnIndex(0);
     setCharacters((items) => items.map((character) => ({
       ...character,
@@ -1046,20 +1101,34 @@ export default function ShinobigamiConsole() {
   const rollCheck = () => {
     if (!selected) return;
     checkpoint();
+    const skillPhraseFor = check.skill === targetSkill ? `以${check.skill}判定` : `以${check.skill}代用${targetSkill}`;
+    if (reversedCheck) {
+      // 逆止中的行为判定自动失败、达成值视为 0，不掷骰
+      const { result, achieved } = resolveCheckOutcome({ raw: 0, target: check.target, reversed: true });
+      setLastRoll({ dice: [], kept: [], total: achieved, result });
+      if (resolution) setResolution(advanceResolutionAfterRoll(resolution, selected.id, result));
+      addLog(`${selected.name} 处于逆止：${skillPhraseFor}的行为判定自动失败（达成值视为 0）。`, "danger");
+      return;
+    }
     const dice = Array.from({ length: diceCount }, () => rollD6());
     const kept = [...dice].sort((a, b) => b - a).slice(0, 2);
     const raw = kept[0] + kept[1];
-    const total = raw + modifier;
     const fumbleLine = checkFumbleLine({ inAttackWindow, plot: selected.plot, supportCost: inAttackWindow ? 0 : supportCostInput });
-    let result = !check.criticalOnly && total >= check.target ? "成功" : "失败";
-    if (raw >= 12) result = "大成功";
-    if (raw <= fumbleLine) result = inAttackWindow ? "大失败／逆止" : "大失败";
+    const { result, achieved: total } = resolveCheckOutcome({
+      raw,
+      modifier,
+      target: check.target,
+      criticalOnly: check.criticalOnly,
+      fumbleLine,
+      inAttackWindow,
+      reversed: inReversal,
+      reversalExempt,
+    });
     setLastRoll({ dice, kept, total, result });
     if (resolution) setResolution(advanceResolutionAfterRoll(resolution, selected.id, result));
     const command = `${diceCount > 2 ? diceCount : ""}SG@12#${fumbleLine}>=${check.criticalOnly ? 99 : check.target}`;
     const poolText = diceCount > 2 ? `${dice.join(",")} → 取高 ${kept.join("+")}` : kept.join("+");
-    const skillPhrase = check.skill === targetSkill ? `以${check.skill}判定` : `以${check.skill}代用${targetSkill}`;
-    addLog(`[${command}] ${selected.name} ${skillPhrase}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}。`, result.includes("失败") ? "danger" : "roll");
+    addLog(`[${command}] ${selected.name} ${skillPhraseFor}：${poolText}${modifier ? ` ${modifier > 0 ? "+" : ""}${modifier}` : ""}＝${total}，${result}${inReversal ? "（逆止中：按奥义／可在逆止中使用的效果进行）" : ""}。`, result.includes("失败") ? "danger" : "roll");
     if (result.includes("逆止") && !selected.conditions.includes("逆止")) {
       if (samePlotBatch.length > 1) {
         // 同时攻击：伤害、逆止与变调须待同布局全员完成攻击处理后统一应用
@@ -1086,9 +1155,23 @@ export default function ShinobigamiConsole() {
       addLog(`请先完成【${resolution.ninpoName}】的当前结算。`, "danger");
       return;
     }
-    const distance = selected.plot == null || target.plot == null ? null : Math.abs(selected.plot - target.plot);
+    const targetCheck = battleTargetCheck({ attackerPlot: selected.plot, targetPlot: target.plot, range: selectedNinpo.range });
+    const distance = targetCheck.distance;
     const problems: string[] = [];
-    if (distance != null && distance > selectedNinpo.range) problems.push(`距离 ${distance} 超过忍法距离 ${selectedNinpo.range}`);
+    if (!targetCheck.ok && targetCheck.reason) problems.push(targetCheck.reason);
+    // 「自由」忍法必须先在习得时选定指定特技，不能沿用判定面板上残留的特技
+    const designation = resolveDesignatedSkill(selectedNinpo, selected.ninpoSkills ?? {});
+    if (designation.needsChoice) problems.push(`【${selectedNinpo.name}】尚未指定特技（请在忍法卡或角色工作台的忍法配置里选定）`);
+    const attackedThisTurn = (selected.usedNinpoIds ?? []).some((id) => allNinpo.find((ninpo) => ninpo.id === id)?.kind === "攻击");
+    problems.push(...canDeclareAttack({
+      kind: selectedNinpo.kind,
+      revealed,
+      actorId: selected.id,
+      currentActorId: currentActor?.id,
+      currentActorName: currentActor?.name,
+      attackedThisTurn,
+      gmOverride: attackOverride,
+    }));
     const nextCost = (selected.spentCost ?? 0) + selectedNinpo.cost;
     // 布局时（未公开）使用支援忍法：花费可超过布局值，但合计不得达到 7，且此后本回合不能再用带花费忍法（由 GM 把关）
     const plotWindowSupport = !revealed && selectedNinpo.kind === "支援";
@@ -1105,7 +1188,12 @@ export default function ShinobigamiConsole() {
       return;
     }
     checkpoint();
-    if (selectedNinpo.skill !== "自由") setTargetSkill(selectedNinpo.skill);
+    resetCheckPanel();
+    const overridden = attackOverride && selectedNinpo.kind === "攻击";
+    setAttackOverride(false);
+    // 「可变」忍法沿用判定面板当前选择的特技；其余一律锚定到解析出的实际指定特技
+    const actualSkill = designation.variable ? targetSkill : designation.skill;
+    if (actualSkill) setTargetSkill(actualSkill);
     updateCharacter(selected.id, {
       spentCost: nextCost,
       usedNinpoIds: [...(selected.usedNinpoIds ?? []), selectedNinpo.id],
@@ -1118,20 +1206,24 @@ export default function ShinobigamiConsole() {
       ninpoName: selectedNinpo.name,
       ninpoKind: selectedNinpo.kind,
       skill: selectedNinpo.skill,
+      designatedSkill: actualSkill ?? undefined,
       stage: "命中判定",
     });
-    addLog(`${selected.name} 对 ${target.name} 宣言【${selectedNinpo.name}】${distance == null ? "" : `（距离 ${distance}）`}。${selectedNinpo.damage ? `命中：${selectedNinpo.damage}。` : ""}`, "action");
+    const distanceNote = distance == null ? "" : targetCheck.exempt ? `（目标布局 0：无视距离）` : `（距离 ${distance}）`;
+    const skillNote = actualSkill && actualSkill !== selectedNinpo.skill ? `以《${actualSkill}》` : "";
+    addLog(`${selected.name} 对 ${target.name} ${skillNote}宣言【${selectedNinpo.name}】${distanceNote}${overridden ? "［GM 覆盖攻击限制］" : ""}。${selectedNinpo.damage ? `命中：${selectedNinpo.damage}。` : ""}`, "action");
   };
 
   const beginDefense = () => {
     if (!resolution || resolution.stage !== "反应窗口" || resolution.ninpoKind !== "攻击" || !resolutionTarget) return;
     checkpoint();
     setResolution({ ...resolution, stage: "回避判定" });
+    resetCheckPanel();
     setSelectedId(resolutionTarget.id);
-    if (resolution.skill !== "自由") setTargetSkill(resolution.skill);
-    setModifier(0);
-    setLastRoll(null);
-    addLog(`宣言窗口关闭，轮到 ${resolutionTarget.name} 进行回避判定。`, "system");
+    // 回避判定使用攻击忍法的指定特技（「自由」忍法锚定到宣言时解析出的特技）
+    const evasion = evasionSkill(resolution);
+    if (evasion) setTargetSkill(evasion);
+    addLog(`宣言窗口关闭，轮到 ${resolutionTarget.name} 进行回避判定${evasion ? `（指定特技《${evasion}》）` : "（旧存档未记录攻击方指定特技，请在判定面板手动选择）"}。`, "system");
   };
 
   const skipDefense = () => {
@@ -1471,7 +1563,7 @@ export default function ShinobigamiConsole() {
             {characters.map((character) => {
               const remaining = FIELD_NAMES.filter((field) => character.life[field]).length + character.extraLife;
               return (
-                <button key={character.id} className={`character-card ${selected.id === character.id ? "selected" : ""} ${currentActor?.id === character.id && revealed ? "current-turn" : ""} ${character.active ? "" : "inactive"}`} onClick={() => setSelectedId(character.id)}>
+                <button key={character.id} className={`character-card ${selected.id === character.id ? "selected" : ""} ${currentActor?.id === character.id && revealed ? "current-turn" : ""} ${character.active ? "" : "inactive"}`} onClick={() => selectCharacter(character.id)}>
                   <span className={`role-chip ${character.role.toLowerCase()}`}>{character.role}</span>
                   <span className="character-name">{character.name}</span>
                   <span className="character-meta">{character.faction} · {character.rank}{!character.active ? " · 已脱落" : phase === "主要" ? ` · ${character.acted ? "已行动" : "未行动"}` : ""}</span>
@@ -1600,7 +1692,11 @@ export default function ShinobigamiConsole() {
               <section className="panel readiness-panel">
                 <div className="readiness-score"><span>READY CHECK</span><strong>{prepBlockers.length ? "未通过" : "通过"}</strong><p>{prepBlockers.length} 项阻塞 · {prepWarnings.length} 项提醒</p></div>
                 <div className="readiness-issues">
-                  {preflightIssues.length ? preflightIssues.map((issue, index) => <article className={issue.level} key={`${issue.code}-${issue.characterId ?? issue.handoutId ?? index}`}><span>{issue.level === "blocker" ? "!" : "·"}</span><p>{issue.message}</p></article>) : <article className="ready"><span>✓</span><p>公告、秘密交付、私聊确认与角色卡复核均已完成。</p></article>}
+                  {preflightIssues.length ? preflightIssues.map((issue, index) => {
+                    const fixCharacter = issue.fix ? characters.find((character) => character.id === issue.characterId) : undefined;
+                    const fixNinpo = issue.fix ? allNinpo.find((ninpo) => ninpo.id === issue.fix?.ninpoId) : undefined;
+                    return <article className={issue.level} key={`${issue.code}-${issue.characterId ?? issue.handoutId ?? ""}-${index}`}><span>{issue.level === "blocker" ? "!" : "·"}</span><p>{issue.message}</p>{issue.fix && fixCharacter && fixNinpo && <button className="issue-fix" onClick={() => setNinpoSkill(fixCharacter, fixNinpo, issue.fix?.skill ?? "")}>一键指定《{issue.fix.skill}》</button>}</article>;
+                  }) : <article className="ready"><span>✓</span><p>公告、秘密交付、私聊确认与角色卡复核均已完成。</p></article>}
                 </div>
                 <div className="readiness-launch"><p>数量提醒允许 GM 按扩展规则确认后继续；秘密、分配与复核缺失会阻止误开团。</p><button onClick={startSession} disabled={Boolean(prepBlockers.length)}>完成检查，进入主要阶段 →</button></div>
               </section>
@@ -1669,15 +1765,16 @@ export default function ShinobigamiConsole() {
                 <div className="plot-lanes">
                   {characters.filter((c) => c.active).map((character) => (
                     <div className="plot-row" key={character.id}>
-                      <button className="plot-character" onClick={() => setSelectedId(character.id)}>{character.name}</button>
+                      <button className="plot-character" onClick={() => selectCharacter(character.id)}>{character.name}</button>
                       <div className="plot-options" aria-label={`${character.name} 的布局`}>
                         {[1, 2, 3, 4, 5, 6].map((plot) => <button key={plot} className={character.plot === plot ? "chosen" : ""} onClick={() => setPlot(character, plot)} aria-label={`${character.name} 选择布局 ${plot}`}>{character.plot === plot && !revealed ? "◆" : plot}</button>)}
+                        <button className={`plot-violation ${character.plot === 0 ? "chosen" : ""}`} onClick={() => setPlot(character, 0)} aria-label={`${character.name} 布局违规，布局值记为 0`} title="公开布局时违规（手下无骰、骰数超出或超出限制范围）：布局值为 0">违规→0</button>
                       </div>
-                      <span className="risk-label">攻击处理大失败 ≤ {character.plot ?? 2}</span>
+                      <span className="risk-label">攻击处理大失败 ≤ {character.plot == null ? 2 : checkFumbleLine({ inAttackWindow: true, plot: character.plot })}{character.plot === 0 ? "（布局 0）" : ""}</span>
                     </div>
                   ))}
                 </div>
-                {revealed && <div className="initiative-strip"><span>行动顺序</span>{battleOrder.map((character, index) => <button className={turnIndex % battleOrder.length === index ? "current" : ""} key={character.id} onClick={() => { setSelectedId(character.id); setTurnIndex(index); }}><b>{index + 1}</b>{character.name}<em>{character.plot}</em></button>)}</div>}
+                {revealed && <div className="initiative-strip"><span>行动顺序</span>{battleOrder.map((character, index) => <button className={turnIndex % battleOrder.length === index ? "current" : ""} key={character.id} onClick={() => { selectCharacter(character.id); setTurnIndex(index); }}><b>{index + 1}</b>{character.name}<em>{character.plot ?? "?"}</em></button>)}</div>}
               </section>
 
               <div className="battle-grid">
@@ -1685,8 +1782,10 @@ export default function ShinobigamiConsole() {
                   <div className="panel-heading"><div><span>ACTION</span><h2>忍法宣言</h2></div></div>
                   <div className="actor-banner"><span>行动者</span><strong>{selected.name}</strong><small>布局 {selected.plot ?? "未定"} · 花费 {selected.spentCost ?? 0}/{selected.plot ?? "–"}</small></div>
                   <label className="field-label">使用忍法<select value={activeNinpoId} onChange={(event) => setSelectedNinpoId(event.target.value)}>{learnedNinpo.map((ninpo) => <option value={ninpo.id} key={ninpo.id}>{ninpo.name}</option>)}</select></label>
-                  <div className="ninpo-card"><div className="ninpo-stats"><span>{selectedNinpo.kind}</span><span>距离 {selectedNinpo.range}</span><span>花费 {selectedNinpo.cost}</span><span>{selectedNinpo.skill}</span></div><p>{selectedNinpo.summary}</p>{selectedNinpo.damage && <strong>{selectedNinpo.damage}</strong>}</div>
-                  <label className="field-label">目标<select value={target?.id ?? ""} onChange={(event) => setTargetId(event.target.value)}>{characters.filter((character) => character.id !== selected.id && character.active).map((character) => <option value={character.id} key={character.id}>{character.name} · 布局 {character.plot ?? "?"}</option>)}</select></label>
+                  <div className="ninpo-card"><div className="ninpo-stats"><span>{selectedNinpo.kind}</span><span>距离 {selectedNinpo.range}</span><span>花费 {selectedNinpo.cost}</span><span className={selectedDesignation.needsChoice ? "skill-unset" : ""}>{selectedNinpoChoices.length ? (selectedDesignation.skill ? `${selectedNinpo.skill}→${selectedDesignation.skill}` : `${selectedNinpo.skill}：未指定`) : selectedDesignation.variable ? "可变（按判定面板）" : selectedNinpo.skill}</span></div><p>{selectedNinpo.summary}</p>{selectedNinpo.damage && <strong>{selectedNinpo.damage}</strong>}</div>
+                  {selectedDesignation.needsChoice && <label className="field-label skill-unset">指定特技（习得时选定，之后不可更改）<select value="" onChange={(event) => setNinpoSkill(selected, selectedNinpo, event.target.value)}><option value="" disabled>请选择【{selectedNinpo.name}】的指定特技</option><SkillOptions choices={selectedNinpoChoices} /></select></label>}
+                  <label className="field-label">目标<select value={target?.id ?? ""} onChange={(event) => setTargetId(event.target.value)}>{characters.filter((character) => character.id !== selected.id && character.active).map((character) => <option value={character.id} key={character.id}>{character.name} · 布局 {character.plot ?? "?"}{character.plot === 0 ? "（布局 0：可无视距离）" : ""}</option>)}</select></label>
+                  {selectedNinpo.kind === "攻击" && <label className="override-toggle"><input type="checkbox" checked={attackOverride} onChange={(event) => setAttackOverride(event.target.checked)} />GM 覆盖：允许非本人行动时或本回合再次宣言攻击（追加攻击等特例）</label>}
                   <button className="declare-button" onClick={declareNinpo} disabled={!target}>宣言忍法</button>
                 </section>
 
@@ -1703,15 +1802,16 @@ export default function ShinobigamiConsole() {
                     </select>
                   </label>
                   <p className="substitution">本次使用：<b>{check.skill}</b> <span>距离 {check.distance}</span>{check.criticalOnly && <em>无可用特技：仅大成功可成功</em>}</p>
+                  {inReversal && <label className="reversal-toggle"><input type="checkbox" checked={reversalExempt} onChange={(event) => setReversalExempt(event.target.checked)} />本判定可在逆止中进行（奥义／写明可用的忍法）</label>}
                   <div className="odds-panel">
-                    <div><span>成功率</span><strong>{(odds.success * 100).toFixed(1)}%</strong></div>
+                    <div><span>成功率</span><strong>{(odds.success * 100).toFixed(1)}%</strong>{reversedCheck && <em>逆止中：行为判定自动失败</em>}</div>
                     <div className="odds-bar"><i className="fumble" style={{ width: `${odds.fumble * 100}%` }} /><i className="success" style={{ width: `${odds.success * 100}%` }} /></div>
                     <p>大成功 {(odds.critical * 100).toFixed(1)}% · 大失败 {(odds.fumble * 100).toFixed(1)}% · 按当前骰池、修正与大失败值精确枚举</p>
                   </div>
                   <div className="dice-pool-control"><span>骰池</span>{[2, 3, 4, 5, 6].map((count) => <button key={count} className={diceCount === count ? "active" : ""} onClick={() => setDiceCount(count)}>{count}D</button>)}<em>多骰取高 2</em></div>
                   <div className="modifier-control"><button onClick={() => setModifier((value) => value - 1)}>−</button><span>修正 <strong>{modifier > 0 ? `+${modifier}` : modifier}</strong></span><button onClick={() => setModifier((value) => value + 1)}>＋</button></div>
                   {!inAttackWindow ? <div className="modifier-control"><button onClick={() => setSupportCostInput((value) => Math.max(0, value - 1))}>−</button><span>支援忍法花费 <strong>{supportCostInput}</strong>{supportCostInput ? `（大失败线 ${fumbleLine}）` : ""}</span><button onClick={() => setSupportCostInput((value) => Math.min(9, value + 1))}>＋</button></div> : null}
-                  <button className="roll-button" onClick={rollCheck}><span>{diceCount > 2 ? `${diceCount}SG` : "2SG"} · BCDICE STYLE</span>投掷判定</button>
+                  <button className="roll-button" onClick={rollCheck}><span>{diceCount > 2 ? `${diceCount}SG` : "2SG"} · BCDICE STYLE</span>{reversedCheck ? "逆止：自动失败" : "投掷判定"}</button>
                   {lastRoll && <div className={`roll-result ${lastRoll.result.includes("失败") ? "failed" : "passed"}`}><span>{lastRoll.dice.join(" · ")}{lastRoll.dice.length > 2 ? ` → ${lastRoll.kept.join("+")}` : ""}</span><strong>{lastRoll.total}</strong><em>{lastRoll.result}</em></div>}
                   <div className="dice-pool-control quick-tables"><span>快速表骰</span><button onClick={rollEmotionTable}>ET 感情表</button><button onClick={() => rollTableHint("FT", "大失败表")}>FT 出目</button><button onClick={() => rollTableHint("WT", "变调表")}>WT 出目</button><button onClick={() => addLog(`[1D6] 素点：${rollD6()}。`, "roll")}>1D6</button><em>ET 给出感情对；FT／WT 只给出目，效果请对照规则书</em></div>
                 </section>
@@ -1737,7 +1837,7 @@ export default function ShinobigamiConsole() {
                   <div className="resolution-instruction">
                     {resolution.stage === "命中判定" && <p>使用右侧行为判定完成命中判定；失败会直接结束，成功后先停在宣言窗口。</p>}
                     {resolution.stage === "反应窗口" && <p>先询问是否还有同一时机的忍法、奥义或修正宣言；确认无人继续宣言后，再进入回避或直接适用效果。</p>}
-                    {resolution.stage === "回避判定" && <p>当前已切换到 {resolutionTarget?.name ?? "目标"}，使用【{resolution.skill}】完成回避判定；成功则结束，失败进入效果结算。</p>}
+                    {resolution.stage === "回避判定" && <p>当前已切换到 {resolutionTarget?.name ?? "目标"}，{evasionSkill(resolution) ? `使用攻击忍法的指定特技《${evasionSkill(resolution)}》完成回避判定` : "旧存档未记录攻击方的指定特技：请在右侧手动选择后完成回避判定"}；成功则结束，失败进入效果结算。</p>}
                     {resolution.stage === "效果结算" && <p>{samePlotBatch.length > 1 ? `布局 ${resolutionActor?.plot} 有 ${samePlotBatch.length} 人同速：先记录结果，待同速角色都完成攻击后再统一应用生命、逆止与变调。` : "使用下方生命力与变调按钮应用结果，再确认效果已结算。"}</p>}
                     {resolution.stage === "完成" && <p>本次忍法已完成。可以归档流程，或直接点击顶部“下一位”归档并推进行动顺序。</p>}
                   </div>
@@ -2006,7 +2106,7 @@ export default function ShinobigamiConsole() {
                   <label>玩家<input value={selected.player ?? ""} onChange={(event) => updateCharacter(selected.id, { player: event.target.value })} /></label>
                   <label>流派<input value={selected.faction} onChange={(event) => updateCharacter(selected.id, { faction: event.target.value })} /></label>
                   <label>下位流派<input value={selected.subFaction ?? ""} onChange={(event) => updateCharacter(selected.id, { subFaction: event.target.value })} placeholder="如无可留空" /></label>
-                  <label>阶级<select value={selected.rank} onChange={(event) => updateCharacter(selected.id, { rank: event.target.value })}><option>下忍</option><option>中忍</option><option>中忍头</option><option>上忍</option><option>上忍头</option><option>头领</option></select></label>
+                  <label>阶级<select value={selected.rank} onChange={(event) => updateCharacter(selected.id, { rank: event.target.value })}><option value="草">草（NPC 用）</option>{RANK_OPTIONS.map((rank) => <option key={rank}>{rank}</option>)}{selected.rank && selected.rank !== "草" && !RANK_OPTIONS.includes(selected.rank) && <option value={selected.rank}>{selected.rank}（导入值）</option>}</select></label>
                   <label>习得条件<input value={selected.condition ?? ""} onChange={(event) => updateCharacter(selected.id, { condition: event.target.value })} placeholder="条件" /></label>
                   <label>流仪<input value={selected.style ?? ""} onChange={(event) => updateCharacter(selected.id, { style: event.target.value })} /></label>
                   <label>年龄<input value={selected.age ?? ""} onChange={(event) => updateCharacter(selected.id, { age: event.target.value })} /></label>
@@ -2103,16 +2203,29 @@ export default function ShinobigamiConsole() {
                 <div className="subsection-heading"><div><span>AUTOMATIC NINPO LIST</span><h3>已装备忍法清单</h3></div><small>效果仅保存你的摘要；完整规则仍以所用规则书为准</small></div>
                 <div className="ninpo-table" role="table" aria-label="已装备忍法清单">
                   <div className="ninpo-table-head" role="row"><span>忍法</span><span>类型</span><span>指定特技</span><span>距离</span><span>花费</span><span>效果摘要</span></div>
-                  {allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id)).map((ninpo) => <div className="ninpo-table-row" role="row" key={ninpo.id}><strong>{ninpo.name}{(ninpo.serial || ninpo.school) && <small className="ninpo-origin">{[ninpo.serial, ninpo.school].filter(Boolean).join(" · ")}</small>}</strong><span>{ninpo.kind}</span><span>{ninpo.skill}</span><span>{ninpo.range >= 99 ? "无" : ninpo.range}</span><span>{ninpo.cost || "无"}</span><p>{ninpo.summary}{ninpo.note && <span className="ninpo-note">备忘：{ninpo.note}</span>}</p></div>)}
+                  {allNinpo.filter((ninpo) => selected.ninpoIds.includes(ninpo.id)).map((ninpo) => <div className="ninpo-table-row" role="row" key={ninpo.id}><strong>{ninpo.name}{(ninpo.serial || ninpo.school) && <small className="ninpo-origin">{[ninpo.serial, ninpo.school].filter(Boolean).join(" · ")}</small>}</strong><span>{ninpo.kind}</span><span>{(() => {
+                    if (!designatedSkillChoices(ninpo).length) return ninpo.skill;
+                    const resolved = resolveDesignatedSkill(ninpo, selected.ninpoSkills ?? {}).skill;
+                    return resolved ? `${ninpo.skill}→${resolved}` : <em className="skill-unset">{ninpo.skill}：未指定</em>;
+                  })()}</span><span>{ninpo.range >= 99 ? "无" : ninpo.range}</span><span>{ninpo.cost || "无"}</span><p>{ninpo.summary}{ninpo.note && <span className="ninpo-note">备忘：{ninpo.note}</span>}</p></div>)}
                 </div>
               </section>
               <section className="ninpo-loadout">
                 <div className="subsection-heading"><div><span>REPEATING LOADOUT</span><h3>忍法配置</h3></div><small>点击添加或移出当前角色</small></div>
-                <div className="ninpo-library">{allNinpo.map((ninpo) => <div className={selected.ninpoIds.includes(ninpo.id) ? "equipped" : ""} key={ninpo.id}><button onClick={() => toggleNinpo(ninpo.id)}><b>{ninpo.name}</b><span>{ninpo.kind} · {ninpo.skill} · 距{ninpo.range} · 费{ninpo.cost}</span></button>{customNinpo.some((item) => item.id === ninpo.id) && <button className="remove-custom" aria-label={`删除自定义忍法 ${ninpo.name}`} onClick={() => deleteCustomNinpo(ninpo.id)}>×</button>}</div>)}</div>
+                <div className="ninpo-library">{allNinpo.map((ninpo) => {
+                  const equipped = selected.ninpoIds.includes(ninpo.id);
+                  const choices = equipped ? designatedSkillChoices(ninpo) : [];
+                  const chosen = choices.length ? resolveDesignatedSkill(ninpo, selected.ninpoSkills ?? {}).skill : null;
+                  return <div className={equipped ? "equipped" : ""} key={ninpo.id}>
+                    <button onClick={() => toggleNinpo(ninpo.id)}><b>{ninpo.name}</b><span>{ninpo.kind} · {ninpo.skill} · 距{ninpo.range} · 费{ninpo.cost}</span></button>
+                    {choices.length > 0 && <label className={`ninpo-skill-pick ${chosen ? "" : "skill-unset"}`}>指定特技<select aria-label={`${ninpo.name} 的指定特技`} value={chosen ?? ""} onChange={(event) => setNinpoSkill(selected, ninpo, event.target.value)}><option value="">未指定</option><SkillOptions choices={choices} /></select></label>}
+                    {customNinpo.some((item) => item.id === ninpo.id) && <button className="remove-custom" aria-label={`删除自定义忍法 ${ninpo.name}`} onClick={() => deleteCustomNinpo(ninpo.id)}>×</button>}
+                  </div>;
+                })}</div>
                 <div className="custom-ninpo-form">
                   <input aria-label="自定义忍法名" placeholder="自定义忍法名" value={customName} onChange={(event) => setCustomName(event.target.value)} />
                   <select aria-label="忍法类型" value={customKind} onChange={(event) => setCustomKind(event.target.value as Ninpo["kind"])}><option>攻击</option><option>支援</option><option>装备</option></select>
-                  <select aria-label="指定特技" value={customSkill} onChange={(event) => setCustomSkill(event.target.value)}>{FIELD_NAMES.map((field) => <optgroup label={field} key={field}>{SKILL_TABLE[field].map((skill) => <option key={skill}>{skill}</option>)}</optgroup>)}</select>
+                  <select aria-label="指定特技" value={customSkill} onChange={(event) => setCustomSkill(event.target.value)}><option value="自由">自由（习得时指定）</option><option value="无">无（无需判定）</option>{FIELD_NAMES.map((field) => <optgroup label={field} key={field}>{SKILL_TABLE[field].map((skill) => <option key={skill}>{skill}</option>)}</optgroup>)}</select>
                   <label>距离<input type="number" min="0" max="99" value={customRange} onChange={(event) => setCustomRange(Number(event.target.value))} /></label>
                   <label>花费<input type="number" min="0" max="99" value={customCost} onChange={(event) => setCustomCost(Number(event.target.value))} /></label>
                   <input className="custom-summary" aria-label="自定义忍法效果摘要" placeholder="效果摘要（请勿粘贴整段规则书原文）" value={customSummary} onChange={(event) => setCustomSummary(event.target.value)} />
@@ -2147,8 +2260,8 @@ export default function ShinobigamiConsole() {
           </> : <div className="rules-list">
             <article><span>01</span><div><h3>行为判定</h3><p>目标值＝5＋指定特技到所用已习得特技的格数。默认选择最近特技，玩家也可以主动选择更远的特技代用；目标值不封顶。</p></div></article>
             <article><span>02</span><div><h3>特殊骰点</h3><p>大成功与大失败只看修正前骰点。通常 12 为大成功、2 为大失败；战斗从攻击处理到回合结束，大失败值改为当前布局值并造成逆止。</p></div></article>
-            <article><span>03</span><div><h3>布局与行动</h3><p>秘密选择 1–6 后同时公开，由高到低行动；高布局更快，但大失败风险也更高。</p></div></article>
-            <article><span>04</span><div><h3>距离与花费</h3><p>双方布局差不得超过忍法距离；同回合忍法累计花费不得超过自己的布局值。</p></div></article>
+            <article><span>03</span><div><h3>布局与行动</h3><p>秘密选择 1–6 后同时公开，由高到低行动；高布局更快，但大失败风险也更高。公开时违规的布局记为 0：最后行动，大失败值为 2。</p></div></article>
+            <article><span>04</span><div><h3>距离与花费</h3><p>双方布局差不得超过忍法距离，目标布局为 0 时无视距离；同回合忍法累计花费不得超过自己的布局值；攻击忍法只能在自己行动时宣言，一回合一次。</p></div></article>
             <article><span>05</span><div><h3>伤害</h3><p>接近战随机失去分野生命力；射击战由受伤者选择；集团战通常获得变调。</p></div></article>
             <article><span>06</span><div><h3>BCDice 风格</h3><p>本工具日志记录 SG 命令。额外骰池采用 nSG 的“投 n 颗、取高 2 颗”方式。</p></div></article>
             <article><span>07</span><div><h3>情报共享</h3><p>当你抱有感情的角色直接获得情报时，你自动获得同一情报；共享所得不会继续触发连锁共享。</p></div></article>

@@ -1,4 +1,4 @@
-import { FIELD_NAMES, makeLife, uid } from "./rules";
+import { ALL_SKILLS, FIELD_NAMES, makeLife, uid } from "./rules";
 import type { BackgroundItem, BuildRequirements, FieldName, Ninpo } from "./rules";
 import { createIdleTutorialState, normalizeTutorialState } from "./tutorial";
 import type { TutorialState } from "./tutorial";
@@ -38,6 +38,8 @@ export type Character = {
   life: Record<FieldName, boolean>;
   skills: string[];
   ninpoIds: string[];
+  /** 「自由」等需要习得时选定指定特技的忍法：键为 ninpoIds 中的条目，值为选定的特技。 */
+  ninpoSkills: Record<string, string>;
   conditions: string[];
   spentCost: number;
   usedNinpoIds: string[];
@@ -94,10 +96,18 @@ export type Resolution = {
   ninpoName: string;
   ninpoKind: Ninpo["kind"];
   skill: string;
+  /** 宣言时解析出的实际指定特技（「自由」忍法的习得选择；「可变」忍法为命中判定所用特技）。 */
+  designatedSkill?: string;
   stage: ResolutionStage;
   attackOutcome?: string;
   defenseOutcome?: string;
 };
+
+/** 回避判定使用攻击忍法的指定特技；旧存档的「自由」忍法没有记录实际特技时返回 null，交由玩家手动选择。 */
+export function evasionSkill(resolution: Pick<Resolution, "skill" | "designatedSkill">): string | null {
+  if (resolution.designatedSkill && ALL_SKILLS.includes(resolution.designatedSkill)) return resolution.designatedSkill;
+  return ALL_SKILLS.includes(resolution.skill) ? resolution.skill : null;
+}
 
 export function advanceResolutionAfterRoll(resolution: Resolution, rollerId: string, outcome: string): Resolution {
   if (resolution.stage === "命中判定" && resolution.actorId === rollerId) {
@@ -110,7 +120,7 @@ export function advanceResolutionAfterRoll(resolution: Resolution, rollerId: str
 }
 
 export type GameState = {
-  schemaVersion: 8;
+  schemaVersion: 9;
   characters: Character[];
   selectedId: string;
   round: number;
@@ -183,21 +193,21 @@ export function createInitialGameState(): GameState {
     {
       id: "pc-tsukikage", name: "月影", role: "PC", faction: "鞍马神流", rank: "中忍", backgroundItems: [], plot: null, active: true,
       extraLife: 0, life: makeLife(), skills: ["刀术", "走法", "见敌术", "潜伏术", "意气", "第六感"],
-      ninpoIds: ["close", "cross", "shoot", "kamaitachi", "blast"], conditions: [], spentCost: 0, usedNinpoIds: [],
+      ninpoIds: ["close", "cross", "shoot", "kamaitachi", "blast"], ninpoSkills: { close: "刀术", shoot: "见敌术" }, conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "守住目标，并查明敌人的秘密。", secret: "尚未公开的个人秘密。", ougi: "月下无影", closedGaps: [false, true, false, false, false], acted: false,
       tools: { 兵粮丸: 0, 神通丸: 1, 遁甲符: 1 },
     },
     {
       id: "npc-kirikage", name: "雾隐", role: "NPC", faction: "隐忍血统", rank: "中忍", backgroundItems: [], plot: null, active: true,
       extraLife: 0, life: makeLife(), skills: ["毒术", "潜伏术", "咒术", "异形化", "身体操术", "调查术"],
-      ninpoIds: ["close", "poison", "shoot", "blast", "kamaitachi"], conditions: [], spentCost: 0, usedNinpoIds: [],
+      ninpoIds: ["close", "poison", "shoot", "blast", "kamaitachi"], ninpoSkills: { close: "异形化", shoot: "咒术" }, conditions: [], spentCost: 0, usedNinpoIds: [],
       mission: "击败妨碍计划的忍者。", secret: "真正的目的仍被迷雾掩盖。", ougi: "百毒夜行", closedGaps: [false, false, false, false, true], acted: false,
       tools: { 兵粮丸: 1, 神通丸: 1, 遁甲符: 0 },
     },
   ];
   const brief = createDefaultBrief(1);
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     characters,
     selectedId: characters[0].id,
     round: 1,
@@ -271,6 +281,18 @@ function migrateSkillName(name: string) {
   return LEGACY_SKILL_RENAMES[name] ?? name;
 }
 
+// v1.8 起记录「自由」忍法习得时选定的特技；只保留键在 ninpoIds 内、值在特技表内的条目。旧档不猜，留空待补选。
+function normalizeNinpoSkills(value: unknown, ninpoIds: string[]): Record<string, string> {
+  const raw = record(value);
+  const result: Record<string, string> = {};
+  for (const [key, skill] of Object.entries(raw)) {
+    if (!ninpoIds.includes(key) || typeof skill !== "string") continue;
+    const migrated = migrateSkillName(skill);
+    if (ALL_SKILLS.includes(migrated)) result[key] = migrated;
+  }
+  return result;
+}
+
 function normalizeCharacter(value: unknown, index: number): Character {
   const raw = record(value);
   const lifeRaw = record(raw.life);
@@ -280,6 +302,7 @@ function normalizeCharacter(value: unknown, index: number): Character {
     if (typeof lifeRaw[field] === "boolean") baseLife[field] = lifeRaw[field] as boolean;
   }
   const role = raw.role === "NPC" ? "NPC" : "PC";
+  const ninpoIds = stringList(raw.ninpoIds).filter((id) => id !== "emotion");
   return {
     id: text(raw.id) || uid(role.toLowerCase()),
     name: text(raw.name, `${role} ${index + 1}`),
@@ -305,12 +328,14 @@ function normalizeCharacter(value: unknown, index: number): Character {
     ougiEffect: text(raw.ougiEffect),
     ougiStrength: text(raw.ougiStrength),
     ougiWeakness: text(raw.ougiWeakness),
-    plot: raw.plot == null ? null : number(raw.plot, 1, 1, 6),
+    // 布局值 0 表示布局违规（或一般人），合法范围 0–6
+    plot: raw.plot == null ? null : number(raw.plot, 1, 0, 6),
     active: raw.active !== false,
     extraLife: number(raw.extraLife, 0, 0, 99),
     life: baseLife,
     skills: stringList(raw.skills).map(migrateSkillName),
-    ninpoIds: stringList(raw.ninpoIds).filter((id) => id !== "emotion"),
+    ninpoIds,
+    ninpoSkills: normalizeNinpoSkills(raw.ninpoSkills, ninpoIds),
     conditions: stringList(raw.conditions).map((condition) => condition === "失忆" ? "忘却" : condition),
     spentCost: number(raw.spentCost, 0, 0, 99),
     usedNinpoIds: stringList(raw.usedNinpoIds),
@@ -379,7 +404,8 @@ export function normalizeGameState(value: unknown): GameState | null {
   const phases: Phase[] = ["导入", "主要", "高潮"];
   const resolutionRaw = record(raw.resolution);
   const stages: ResolutionStage[] = ["命中判定", "反应窗口", "回避判定", "效果结算", "完成"];
-  const resolution = ids.has(text(resolutionRaw.actorId)) && ids.has(text(resolutionRaw.targetId)) && stages.includes(text(resolutionRaw.stage) as ResolutionStage)
+  const designatedSkill = migrateSkillName(text(resolutionRaw.designatedSkill));
+  const resolution: Resolution | null = ids.has(text(resolutionRaw.actorId)) && ids.has(text(resolutionRaw.targetId)) && stages.includes(text(resolutionRaw.stage) as ResolutionStage)
     ? {
       id: text(resolutionRaw.id) || uid("resolution"),
       actorId: text(resolutionRaw.actorId),
@@ -387,7 +413,8 @@ export function normalizeGameState(value: unknown): GameState | null {
       ninpoId: text(resolutionRaw.ninpoId),
       ninpoName: text(resolutionRaw.ninpoName, "未命名忍法"),
       ninpoKind: (["攻击", "支援", "装备"].includes(text(resolutionRaw.ninpoKind)) ? text(resolutionRaw.ninpoKind) : "攻击") as Ninpo["kind"],
-      skill: text(resolutionRaw.skill, "自由"),
+      skill: migrateSkillName(text(resolutionRaw.skill, "自由")),
+      designatedSkill: ALL_SKILLS.includes(designatedSkill) ? designatedSkill : undefined,
       stage: text(resolutionRaw.stage) as ResolutionStage,
       attackOutcome: text(resolutionRaw.attackOutcome) || undefined,
       defenseOutcome: text(resolutionRaw.defenseOutcome) || undefined,
@@ -397,7 +424,7 @@ export function normalizeGameState(value: unknown): GameState | null {
   const selectedId = ids.has(text(raw.selectedId)) ? text(raw.selectedId) : characters[0].id;
   const firstPcId = pcs[0]?.id ?? characters[0].id;
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     characters,
     selectedId,
     round: number(raw.round, 1, 1, 999),
