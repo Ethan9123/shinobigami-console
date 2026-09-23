@@ -78,7 +78,7 @@ test("product page replaces the starter preview", async () => {
   assert.match(surface, /开团公告与约束/);
   assert.match(surface, /本地资料体检/);
   assert.match(surface, /当前结算流程/);
-  assert.match(surface, /MVP 1\.8\.0/);
+  assert.match(surface, /MVP 1\.9\.0/);
   // i18n.ts 自带这两个标识，只能对组件树断言，才能确认学院页签和语言切换确实被渲染
   assert.match(components, /nav\.academy/);
   assert.match(components, /LOCALES\.map/);

@@ -17,9 +17,9 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "忍神控制台",
       description: "Excel 角色卡 · 本地角色库 · 一键加入会话",
       type: "website",
-      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "忍神控制台 v1.7：Excel 角色卡、本地角色库与会话控制台" }],
+      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "忍神控制台：Excel 角色卡、本地角色库与会话控制台" }],
     },
-    twitter: { card: "summary_large_image", title: "忍神控制台 v1.7", description: "Excel 角色卡 · 本地角色库 · 一键加入会话", images: [imageUrl] },
+    twitter: { card: "summary_large_image", title: "忍神控制台", description: "Excel 角色卡 · 本地角色库 · 一键加入会话", images: [imageUrl] },
   };
 }
 
