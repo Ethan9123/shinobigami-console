@@ -63,11 +63,29 @@ test("BCDice palette uses official ShinobiGami command syntax without bundling t
   const palette = interop.createBCDicePalette(character, rules.COMMON_NINPO);
 
   assert.match(palette, /SG@12#2>=5 【刀术】/);
-  assert.match(palette, /SG@12#2>=12 【潜伏术】/);
+  // 失去生命力分野的特技不能直接使用：按最近的可用特技代用（火术经涂黑的器术/体术空隙，距离 3）
+  assert.match(palette, /SG@12#2>=8 【潜伏术→火术】/);
+  assert.doesNotMatch(palette, /SG@12#2>=12 【潜伏术】/);
   assert.match(palette, /SG@12#2>=5 【爆破／火术】/);
   assert.match(palette, /^ET 感情表$/m);
   assert.match(palette, /^RTT 随机特技$/m);
   assert.doesNotMatch(palette, /1D6|2D6|掷骰结果/);
+  assert.doesNotMatch(palette, /接近战攻击／自由/, "an unset free skill must not be exported as target 5");
+});
+
+test("free ninpo export the designated skill chosen at acquisition", () => {
+  const free = { ...character, skills: ["刀术"], closedGaps: [false, false, false, false, false], ninpoIds: ["close", "shoot"], ninpoSkills: { close: "火术", shoot: "刀术" } };
+  const palette = interop.createBCDicePalette(free, rules.COMMON_NINPO);
+  const distance = rules.skillDistance("刀术", "火术");
+  assert.equal(distance, 10);
+  assert.ok(palette.includes(`SG@12#2>=${5 + distance} 【接近战攻击／火术→刀术】`), palette);
+  assert.match(palette, /SG@12#2>=5 【射击战攻击／刀术】/);
+
+  const foundry = interop.createFoundryActor(free, rules.COMMON_NINPO);
+  const close = foundry.items.find((item) => item.type === "ability" && item.name === "接近战攻击");
+  assert.equal(close.system.talent, "火术");
+  const unset = interop.createFoundryActor({ ...free, ninpoSkills: {} }, rules.COMMON_NINPO);
+  assert.equal(unset.items.find((item) => item.name === "接近战攻击").system.talent, "");
 });
 
 test("CCFOLIA clipboard export is public by default and opt-in for private notes", () => {
@@ -108,4 +126,27 @@ test("Foundry export follows the Shinobigami Actor and Item schema", () => {
   assert.ok(safe.items.every((item) => item.type !== "finish" && item.type !== "handout"));
   assert.ok(privateCopy.items.some((item) => item.type === "finish" && item.name === "月下无影"));
   assert.ok(privateCopy.items.some((item) => item.type === "handout" && item.system.secret.includes("一封信")));
+});
+
+test("palette and Foundry exports drop paralyzed skills and honor skill table connections", () => {
+  const sealed = { ...character, life: { ...character.life, 忍术: true }, paralyzedSkills: ["刀术"] };
+  const palette = interop.createBCDicePalette(sealed, rules.COMMON_NINPO);
+  const distance = rules.skillDistance("火术", "刀术", sealed.closedGaps);
+  assert.ok(palette.includes(`SG@12#2>=${5 + distance} 【刀术→火术】`), palette);
+  assert.doesNotMatch(palette, /SG@12#2>=5 【刀术】/);
+
+  const wrapped = {
+    ...character,
+    life: { 器术: true, 体术: true, 忍术: true, 谋术: true, 战术: true, 妖术: true },
+    skills: ["藏兵术"],
+    ninpoIds: ["close", "makai-kogaku"],
+    ninpoSkills: { close: "封术" },
+    closedGaps: [false, false, false, false, false],
+    outerGapClosed: true,
+  };
+  assert.match(interop.createBCDicePalette(wrapped, rules.COMMON_NINPO), /SG@12#2>=6 【接近战攻击／封术→藏兵术】/);
+  const foundry = interop.createFoundryActor(wrapped, rules.COMMON_NINPO);
+  assert.equal(foundry.system.talent.gap["0"], true, "gap 0 is the outer gap left of 器术");
+  assert.equal(foundry.system.talent.table[5][4].num, "6", "封术 is one step away through makai-kogaku");
+  assert.equal(interop.createFoundryActor({ ...wrapped, outerGapClosed: false }, rules.COMMON_NINPO).system.talent.gap["0"], false);
 });

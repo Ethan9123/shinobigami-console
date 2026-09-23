@@ -1,4 +1,4 @@
-import { FIELD_NAMES, SKILL_TABLE, nearestSkill } from "./rules";
+import { FIELD_NAMES, SKILL_TABLE, nearestSkill, resolveDesignatedSkill, skillTableOptions, usableSkills } from "./rules";
 import type { Ninpo } from "./rules";
 import type { Character } from "./session";
 
@@ -56,11 +56,9 @@ function learnedNinpo(character: Character, ninpo: Ninpo[]) {
   return ninpo.filter((item) => character.ninpoIds.includes(item.id));
 }
 
+// 与判定面板同一口径：剔除失去生命力分野的特技和被「麻痹」封锁的特技
 function availableSkills(character: Character) {
-  return character.skills.filter((skill) => {
-    const field = FIELD_NAMES.find((name) => SKILL_TABLE[name].includes(skill));
-    return field ? character.life[field] : true;
-  });
+  return usableSkills(character.skills, character.life, character.paralyzedSkills ?? []);
 }
 
 function sgCommand(target: number, label: string, special: number, fumble: number) {
@@ -75,18 +73,28 @@ export function createBCDicePalette(character: Character, ninpo: Ninpo[], option
   const special = Math.max(2, Math.min(12, Math.floor(options.special ?? 12)));
   const fumble = Math.max(2, Math.min(12, Math.floor(options.fumble ?? 2)));
   const usable = availableSkills(character);
+  const table = skillTableOptions(character, ninpo);
   const commands: string[] = [];
 
   for (const skill of character.skills) {
-    const field = FIELD_NAMES.find((name) => SKILL_TABLE[name].includes(skill));
-    commands.push(sgCommand(field && !character.life[field] ? 12 : 5, skill, special, fumble));
+    const known = FIELD_NAMES.some((field) => SKILL_TABLE[field].includes(skill));
+    if (!known || usable.includes(skill)) {
+      commands.push(sgCommand(5, skill, special, fumble));
+      continue;
+    }
+    // 失去生命力分野或被麻痹封锁的特技不能直接使用：改按最近的可用特技代用
+    const check = nearestSkill(usable, skill, table);
+    commands.push(sgCommand(check.criticalOnly ? 99 : check.target, `${skill}→${check.skill}`, special, fumble));
   }
 
   for (const item of learnedNinpo(character, ninpo)) {
     if (item.kind === "装备") continue;
-    const check = nearestSkill(usable, item.skill, character.closedGaps);
-    const substitute = item.skill !== "自由" && check.skill !== item.skill ? `→${check.skill}` : "";
-    commands.push(sgCommand(check.criticalOnly ? 99 : check.target, `${item.name}／${item.skill}${substitute}`, special, fumble));
+    // 「自由」忍法按习得时选定的特技出命令；尚未指定、「无」或「可变」的忍法没有固定目标值，不输出
+    const designated = resolveDesignatedSkill(item, character.ninpoSkills ?? {}).skill;
+    if (!designated) continue;
+    const check = nearestSkill(usable, designated, table);
+    const substitute = check.skill !== designated ? `→${check.skill}` : "";
+    commands.push(sgCommand(check.criticalOnly ? 99 : check.target, `${item.name}／${designated}${substitute}`, special, fumble));
   }
 
   commands.push("ET 感情表", "FT ファンブル表", "WT 変調表", "BT 戦场表", "ST 场景表", "RCT 随机分野", "RTT 随机特技");
@@ -151,10 +159,11 @@ export function createCCFoliaCharacter(character: Character, ninpo: Ninpo[], opt
   };
 }
 
-function foundryTalentTable(character: Character) {
+function foundryTalentTable(character: Character, ninpo: Ninpo[]) {
   const usable = availableSkills(character);
+  const table = skillTableOptions(character, ninpo);
   return FIELD_NAMES.map((field) => SKILL_TABLE[field].map((skill) => {
-    const check = nearestSkill(usable, skill, character.closedGaps);
+    const check = nearestSkill(usable, skill, table);
     return {
       state: character.skills.includes(skill),
       num: String(check.criticalOnly ? 99 : check.target),
@@ -170,7 +179,7 @@ function foundryItems(character: Character, ninpo: Ninpo[], includePrivate: bool
     type: "ability",
     system: {
       type: item.kind,
-      talent: item.skill === "自由" ? "" : item.skill,
+      talent: resolveDesignatedSkill(item, character.ninpoSkills ?? {}).skill ?? "",
       gap: item.range >= 99 ? "" : String(item.range),
       cost: item.cost ? String(item.cost) : "",
       hidden: false,
@@ -214,7 +223,8 @@ export function createFoundryActor(character: Character, ninpo: Ninpo[], options
   const includePrivate = options.includePrivate === true;
   const state = Object.fromEntries(FIELD_NAMES.map((field, index) => [String(index), !character.life[field]]));
   const dirty = Object.fromEntries(FIELD_NAMES.map((_, index) => [String(index), false]));
-  const gap = Object.fromEntries([0, 1, 2, 3, 4, 5].map((index) => [String(index), index === 0 ? false : character.closedGaps[index - 1] === true]));
+  // gap["0"] 为器术左侧的外空隙，"1"–"5" 依次为分野间空隙
+  const gap = Object.fromEntries([0, 1, 2, 3, 4, 5].map((index) => [String(index), index === 0 ? character.outerGapClosed === true : character.closedGaps[index - 1] === true]));
   const life = FIELD_NAMES.filter((field) => character.life[field]).length + character.extraLife;
 
   return {
@@ -223,9 +233,10 @@ export function createFoundryActor(character: Character, ninpo: Ninpo[], options
     system: {
       health: { value: life, min: 0, max: 6 + character.extraLife, state, dirty },
       talent: {
-        table: foundryTalentTable(character),
+        table: foundryTalentTable(character, ninpo),
         gap,
         curiosity: 0,
+        // 连通状态已折算进 table 的目标值；overflowX/Y 在 Foundry 端的语义尚未核实，保持默认
         overflowX: false,
         overflowY: false,
         yoma: false,

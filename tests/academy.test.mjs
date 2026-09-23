@@ -43,6 +43,11 @@ test("glossary uses confirmed official English terms", () => {
   assert.equal(byZh["巡"].en, "Cycle");
   assert.equal(byZh["剧情场景"].en, "Drama Scene");
   assert.equal(byZh["剧情场景"].ja, "ドラマシーン");
+  // 官方英文速查表感情表第 1 行：Empathy (+) / Mistrust (-)
+  const empathy = academy.GLOSSARY.find((entry) => entry.zh.startsWith("共鸣"));
+  const mistrust = academy.GLOSSARY.find((entry) => entry.zh.startsWith("猜疑"));
+  assert.match(empathy.en, /^Empathy/);
+  assert.match(mistrust.en, /^Mistrust/);
   for (const entry of academy.GLOSSARY) {
     assert.ok(entry.zh && entry.en && entry.ja, `${entry.zh} 术语三语不全`);
   }
