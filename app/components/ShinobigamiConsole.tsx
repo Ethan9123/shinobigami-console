@@ -8,6 +8,7 @@ import { useConsoleController } from "./console/useConsoleController";
 import CharacterRail from "./console/shell/CharacterRail";
 import ModeNav from "./console/shell/ModeNav";
 import StatusPanel from "./console/shell/StatusPanel";
+import StoragePanel from "./console/shell/StoragePanel";
 import TopBar from "./console/shell/TopBar";
 import SidePanel from "./console/side/SidePanel";
 import AcademyView from "./console/views/AcademyView";
@@ -32,6 +33,7 @@ export default function ShinobigamiConsole() {
 
   // 所有视图（包括 useSelectedConsole 的面板）都依赖这里先挡掉没有当前角色的情况
   if (!selected) return null;
+  if (!ctl.hydrated) return <main className="console-shell"><p role="status">正在读取本设备存档…</p></main>;
 
   const MainView = view === "tutorial" ? null : VIEWS[view];
 
@@ -41,6 +43,7 @@ export default function ShinobigamiConsole() {
       <TopBar />
 
       <ModeNav />
+      <StoragePanel />
 
       <div className={`workspace ${view === "tutorial" || view === "academy" ? "tutorial-workspace" : ""}`}>
         {view !== "tutorial" && view !== "academy" && <CharacterRail />}
