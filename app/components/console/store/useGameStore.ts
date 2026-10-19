@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SetStateAction } from "react";
-import { ACADEMY_PROGRESS_KEY, normalizeAcademyProgress } from "../../../lib/academy";
-import { CHARACTER_LIBRARY_STORAGE_KEY, normalizeCharacterLibrary } from "../../../lib/character-library";
+import { ACADEMY_PROGRESS_KEY } from "../../../lib/academy";
+import { CHARACTER_LIBRARY_STORAGE_KEY } from "../../../lib/character-library";
 import type { CharacterLibraryEntry } from "../../../lib/character-library";
-import { LOCALE_STORAGE_KEY, normalizeLocale } from "../../../lib/i18n";
+import { LOCALE_STORAGE_KEY } from "../../../lib/i18n";
 import type { Locale } from "../../../lib/i18n";
+import { parseAcademy, parseLibrary, parseLocale, parseSession, SESSION_STORAGE_KEY } from "../../../lib/backup";
 import { uid } from "../../../lib/rules";
-import { createInitialGameState, normalizeGameState, starterLogs } from "../../../lib/session";
+import { createInitialGameState } from "../../../lib/session";
 import type { Character, GameState, LogEntry } from "../../../lib/session";
+import { useDeviceState } from "./useDeviceState";
 
-export const STORAGE_KEY = "shinobigami-console-v1";
+export const STORAGE_KEY = SESSION_STORAGE_KEY;
 export const INITIAL_STATE = createInitialGameState();
 
 function cloneState(state: GameState): GameState {
@@ -17,12 +19,23 @@ function cloneState(state: GameState): GameState {
 }
 
 export function useGameStore() {
-  const [game, setGame] = useState<GameState>(INITIAL_STATE);
+  const sessionStorage = useDeviceState(STORAGE_KEY, INITIAL_STATE, (raw) => parseSession(JSON.parse(raw)));
+  const libraryStorage = useDeviceState<CharacterLibraryEntry[]>(CHARACTER_LIBRARY_STORAGE_KEY, [], (raw) => parseLibrary(JSON.parse(raw)));
+  const academyStorage = useDeviceState<string[]>(ACADEMY_PROGRESS_KEY, [], (raw) => parseAcademy(JSON.parse(raw)));
+  const localeStorage = useDeviceState<Locale>(LOCALE_STORAGE_KEY, "zh", parseLocale, (value) => value);
+  const { value: game, setValue: setGame } = sessionStorage;
+  const { value: characterLibrary, setValue: setCharacterLibrary } = libraryStorage;
+  const { value: academyDone, setValue: setAcademyDone } = academyStorage;
+  const { value: locale, setValue: setLocale } = localeStorage;
   const [history, setHistory] = useState<GameState[]>([]);
-  const [locale, setLocale] = useState<Locale>("zh");
-  const [academyDone, setAcademyDone] = useState<string[]>([]);
-  const [characterLibrary, setCharacterLibrary] = useState<CharacterLibraryEntry[]>([]);
-  const [hydrated, setHydrated] = useState(false);
+  const storageSlots = [
+    { ...sessionStorage, label: "会话" },
+    { ...libraryStorage, label: "角色库" },
+    { ...academyStorage, label: "学习进度" },
+    { ...localeStorage, label: "语言偏好" },
+  ];
+  const hydrated = storageSlots.every((slot) => slot.hydrated);
+  const storageUnsafe = hydrated && storageSlots.some((slot) => slot.status !== "saved");
 
   // 更新为同一个值时沿用原对象，保持与各字段独立 useState 相同的跳过更新行为
   const fieldSetters = useMemo(() => {
@@ -57,52 +70,16 @@ export function useGameStore() {
       setTranscript: field("transcript"),
       setReplay: field("replay"),
     };
-  }, []);
+  }, [setGame]);
   const { setLogs, setCharacters } = fieldSetters;
   const { round, cycle } = game;
 
   useEffect(() => {
-    let restored: GameState | null = null;
-    let storedLocale: string | null = null;
-    let storedAcademy: unknown = [];
-    let storedCharacterLibrary: unknown = [];
-    try {
-      storedLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
-      storedAcademy = JSON.parse(localStorage.getItem(ACADEMY_PROGRESS_KEY) ?? "[]");
-      storedCharacterLibrary = JSON.parse(localStorage.getItem(CHARACTER_LIBRARY_STORAGE_KEY) ?? "[]");
-    } catch { /* 独立小键损坏时忽略 */ }
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) restored = normalizeGameState(JSON.parse(saved));
-    } catch {
-      // Ignore invalid device-local data and start from the safe sample.
-    }
-    queueMicrotask(() => {
-      setLocale(normalizeLocale(storedLocale));
-      setAcademyDone(normalizeAcademyProgress(storedAcademy));
-      setCharacterLibrary(normalizeCharacterLibrary(storedCharacterLibrary));
-      if (restored) setGame({ ...restored, logs: restored.logs.length ? restored.logs : starterLogs });
-      setHydrated(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(game));
-    } catch {
-      // A large portrait or transcript can exceed the browser quota; JSON export remains available as a fallback.
-    }
-  }, [game, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(CHARACTER_LIBRARY_STORAGE_KEY, JSON.stringify(characterLibrary));
-    } catch {
-      // Device storage may be full or disabled. The in-memory library remains usable for this tab.
-    }
-  }, [characterLibrary, hydrated]);
+    if (!storageUnsafe) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [storageUnsafe]);
 
   const currentState = (): GameState => game;
   const checkpoint = () => setHistory((items) => [...items.slice(-19), cloneState(currentState())]);
@@ -111,13 +88,6 @@ export function useGameStore() {
   };
   const updateCharacter = (id: string, patch: Partial<Character>) => {
     setCharacters((items) => items.map((character) => character.id === id ? { ...character, ...patch } : character));
-  };
-
-  const persistLocale = (next: Locale) => {
-    try { localStorage.setItem(LOCALE_STORAGE_KEY, next); } catch { /* 存储满时忽略 */ }
-  };
-  const persistAcademyProgress = (next: string[]) => {
-    try { localStorage.setItem(ACADEMY_PROGRESS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
 
   const undo = () => {
@@ -141,12 +111,13 @@ export function useGameStore() {
     characterLibrary,
     setCharacterLibrary,
     hydrated,
+    storageSlots,
+    storageUnsafe,
+    readRawDeviceData: () => Object.fromEntries(storageSlots.map(({ key }) => [key, window.localStorage.getItem(key)])),
     currentState,
     checkpoint,
     addLog,
     updateCharacter,
-    persistLocale,
-    persistAcademyProgress,
     undo,
   };
 }
