@@ -5,7 +5,6 @@ import { createBCDicePalette, createCCFoliaCharacter, createFoundryActor, serial
 import { applyParalysis, factionSpecialty, matchesSpecialtyGaps, parseCharacterText, specialtyGaps, uid } from "../../../lib/rules";
 import type { BackgroundItem, FieldName, Ninpo } from "../../../lib/rules";
 import type { Character } from "../../../lib/session";
-import { importCharacterWorkbook } from "../../../lib/xlsx-import";
 import type { ConsoleBase } from "../types";
 import type { BattleActions } from "./battle";
 import type { RosterActions } from "./roster";
@@ -13,10 +12,10 @@ import type { RosterActions } from "./roster";
 export function createSheetActions(ctx: ConsoleBase & RosterActions & BattleActions) {
   const {
     addLog, allNinpo, characters, checkpoint, customCost, customKind, customName, customNote, customRange,
-    customSkill, customSummary, importPreview, interopPrivate, reanchorTurn, selectCharacter, selected,
+    customSkill, customSummary, importPreview, interopPrivate, reanchorTurn, revealed, selectCharacter, selected,
     selectedSpecialty, setCharacterLibrary, setCharacterLibraryStatus, setCharacters, setCustomName, setCustomNinpo,
     setCustomNote, setCustomSummary, setImportText, setView, setWorkbookImport, setWorkbookImportStatus, tableSafe,
-    updateCharacter,
+    updateCharacter, workbookImportRequest,
   } = ctx;
 
   const toggleSkill = (skill: string) => {
@@ -76,6 +75,7 @@ export function createSheetActions(ctx: ConsoleBase & RosterActions & BattleActi
 
   const applyCharacterImport = () => {
     if (!selected || !importPreview.recognized) return;
+    workbookImportRequest.current += 1;
     checkpoint();
     const importedFaction = importPreview.faction ?? selected.faction;
     const importedSkills = importPreview.skills.length ? importPreview.skills : selected.skills;
@@ -124,14 +124,30 @@ export function createSheetActions(ctx: ConsoleBase & RosterActions & BattleActi
     setWorkbookImportStatus("导入已应用；可继续选择另一份 Excel 角色卡");
   };
 
+  const editCharacterImport = (text: string) => {
+    workbookImportRequest.current += 1;
+    setImportText(text);
+    setWorkbookImport(null);
+    setWorkbookImportStatus("使用纯文字预览；也可选择 .xlsx 文件。");
+  };
+
   const importWorkbookFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    const request = ++workbookImportRequest.current;
     setWorkbookImport(null);
     setWorkbookImportStatus(`正在本地读取「${file.name}」…`);
     try {
-      const imported = await importCharacterWorkbook(await file.arrayBuffer());
+      if (!/\.xlsx$/i.test(file.name)) throw new Error("目前只支持 .xlsx；旧版 .xls 请先在 Excel 中另存为 .xlsx。");
+      const { importCharacterWorkbook } = await import("../../../lib/xlsx-import").catch(() => {
+        throw new Error("Excel 解析工具暂未载入，请检查网络后重试，或粘贴角色卡纯文字。");
+      });
+      if (request !== workbookImportRequest.current) return;
+      const bytes = await file.arrayBuffer();
+      if (request !== workbookImportRequest.current) return;
+      const imported = await importCharacterWorkbook(bytes);
+      if (request !== workbookImportRequest.current) return;
       const preview = parseCharacterText(imported.text);
       setWorkbookImport(imported);
       setImportText(imported.text);
@@ -140,6 +156,7 @@ export function createSheetActions(ctx: ConsoleBase & RosterActions & BattleActi
         : `已读取「${imported.sheetName}」工作表，当前识别 ${preview.recognized} 项。`);
       addLog(`已在本地读取 Excel 角色卡「${file.name}」；应用前请核对预览。`, "system");
     } catch (error) {
+      if (request !== workbookImportRequest.current) return;
       const message = error instanceof Error ? error.message : "无法读取这份角色卡。";
       setWorkbookImportStatus(message);
       addLog(`Excel 角色卡导入失败：${message}`, "danger");
@@ -206,7 +223,7 @@ export function createSheetActions(ctx: ConsoleBase & RosterActions & BattleActi
   };
 
   const copyCCFoliaCharacter = () => {
-    const data = createCCFoliaCharacter(selected, allNinpo, { includePrivate: interopPrivate && !tableSafe });
+    const data = createCCFoliaCharacter(selected, allNinpo, { includePrivate: interopPrivate && !tableSafe, includePlot: revealed });
     void copyInteropText(serializeInterop(data), " CCFOLIA 角色数据");
   };
 
@@ -330,7 +347,7 @@ export function createSheetActions(ctx: ConsoleBase & RosterActions & BattleActi
 
   return {
     toggleSkill, toggleGap, toggleOuterGap, applySpecialtyGaps, addBackgroundItem, updateBackgroundItem,
-    removeBackgroundItem, applyCharacterImport, importWorkbookFile, saveSelectedToLibrary, loadCharacterFromLibrary,
+    removeBackgroundItem, applyCharacterImport, editCharacterImport, importWorkbookFile, saveSelectedToLibrary, loadCharacterFromLibrary,
     removeCharacterFromLibrary, importPortrait, copyInteropText, copyBCDicePalette, copyCCFoliaCharacter,
     downloadFoundryActor, toggleLife, addParalysisLayer, clearParalysis, toggleCondition, toggleActive, updateTool,
     toggleNinpo, addCustomNinpo, deleteCustomNinpo,

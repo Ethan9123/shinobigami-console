@@ -4,7 +4,7 @@ import { useSelectedConsole } from "../../context";
 export default function InteropPanel() {
   const {
     allNinpo, copyBCDicePalette, copyCCFoliaCharacter, downloadFoundryActor, interopPrivate, selected, setInteropPrivate,
-    tableSafe,
+    revealed, tableSafe,
   } = useSelectedConsole();
 
   return (
@@ -23,6 +23,7 @@ export default function InteropPanel() {
         <div className="interop-actions">
           <label className={tableSafe ? "disabled" : ""}><input type="checkbox" checked={interopPrivate && !tableSafe} disabled={tableSafe} onChange={(event) => setInteropPrivate(event.target.checked)} />导出时包含秘密与奥义</label>
           <p>{tableSafe ? "桌面安全模式已锁定：所有出口只含公开资料。" : interopPrivate ? "私人资料将进入 CCFOLIA 备忘与 Foundry Handout；请只交给对应玩家或 GM。" : "默认只导出公开资料；本地立绘不会嵌入 JSON。"}</p>
+          {!revealed && <p>布局公开前，CCFOLIA 导出的先攻值使用默认值，不带入秘密布局。</p>}
           <div><button onClick={copyBCDicePalette}>复制 BCDice 调色板</button><button onClick={copyCCFoliaCharacter}>复制 CCFOLIA 角色</button><button className="foundry-export" onClick={downloadFoundryActor}>导出 Foundry Actor</button></div>
         </div>
       </div>

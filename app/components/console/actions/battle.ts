@@ -34,7 +34,7 @@ export function createBattleActions(ctx: ConsoleBase & CheckPanelActions & Roste
     reversalExempt, reversedCheck, round, samePlotBatch, selectCharacter, selected, selectedNinpo, setAttackOverride,
     setCharacters, setEmotions, setLastRoll, setResolution, setRevealed, setReversalExempt, setRound, setSelectedId,
     setSupportCostInput, setTargetSkill, setTreasureName, setTreasureNote, setTreasures, setTurnIndex,
-    supportCostInput, target, targetSkill, treasureName, treasureNote, treasures, turnIndex,
+    supportCostInput, tableSafe, target, targetSkill, treasureName, treasureNote, treasures, turnIndex,
     updateCharacter,
   } = ctx;
 
@@ -65,6 +65,7 @@ export function createBattleActions(ctx: ConsoleBase & CheckPanelActions & Roste
   };
 
   const setPlot = (character: Character, plot: number) => {
+    if (tableSafe) return;
     checkpoint();
     updateCharacter(character.id, { plot });
     if (plot <= 0) {
@@ -79,6 +80,7 @@ export function createBattleActions(ctx: ConsoleBase & CheckPanelActions & Roste
   };
 
   const revealPlots = () => {
+    if (revealed || !characters.some((character) => character.active && character.plot != null)) return;
     checkpoint();
     setRevealed(true);
     setTurnIndex(0);
@@ -172,7 +174,7 @@ export function createBattleActions(ctx: ConsoleBase & CheckPanelActions & Roste
   };
 
   const declareNinpo = () => {
-    if (!selected || !target) return;
+    if (!selected || !target || (tableSafe && !revealed)) return;
     if (resolution && resolution.stage !== "完成") {
       addLog(`请先完成【${resolution.ninpoName}】的当前结算。`, "danger");
       return;
