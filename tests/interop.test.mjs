@@ -128,6 +128,13 @@ test("Foundry export follows the Shinobigami Actor and Item schema", () => {
   assert.ok(privateCopy.items.some((item) => item.type === "handout" && item.system.secret.includes("一封信")));
 });
 
+test("CCFOLIA export can omit initiative independently of private notes", () => {
+  const concealed = interop.createCCFoliaCharacter(character, rules.COMMON_NINPO, { includePrivate: true, includePlot: false });
+  assert.equal(concealed.data.initiative, 0);
+  assert.match(concealed.data.memo, /其实秘宝是一封信/);
+  assert.equal(interop.createCCFoliaCharacter(character, rules.COMMON_NINPO, { includePlot: true }).data.initiative, 4);
+});
+
 test("palette and Foundry exports drop paralyzed skills and honor skill table connections", () => {
   const sealed = { ...character, life: { ...character.life, 忍术: true }, paralyzedSkills: ["刀术"] };
   const palette = interop.createBCDicePalette(sealed, rules.COMMON_NINPO);

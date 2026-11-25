@@ -4,6 +4,7 @@ import type { Character } from "./session";
 
 export type InteropOptions = {
   includePrivate?: boolean;
+  includePlot?: boolean;
   special?: number;
   fumble?: number;
 };
@@ -137,7 +138,7 @@ export function createCCFoliaCharacter(character: Character, ninpo: Ninpo[], opt
     data: {
       name: character.name,
       memo: publicMemo(character, includePrivate),
-      initiative: character.plot ?? 0,
+      initiative: options.includePlot === false ? 0 : character.plot ?? 0,
       externalUrl: "",
       status,
       params,

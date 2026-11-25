@@ -153,6 +153,15 @@ test("due GM cues are listed, but hidden in table-safe mode", () => {
   assert.deepEqual(buildSmartHints(input({ dueCues, tableSafe: true }))[1], { tone: "danger", title: "2 个主持事件已到点", detail: "请切回 GM 视图查看事件内容。" });
 });
 
+test("the table-safe assistant does not reveal a secret plot through spending limits", () => {
+  for (const plot of [0, 4]) {
+    const hero = character({ plot, spentCost: plot });
+    const shared = { phase: "高潮", characters: [hero], selected: hero, battleOrder: [hero], tableSafe: true };
+    assert.ok(!titles(buildSmartHints(input(shared))).includes("本回合花费已用尽"));
+    assert.ok(titles(buildSmartHints(input({ ...shared, revealed: true }))).includes("本回合花费已用尽"));
+  }
+});
+
 test("a calm state outside the intro phase yields the all-clear hint and keeps hint order stable", () => {
   assert.deepEqual(buildSmartHints(input({ phase: "高潮", characters: [character({ plot: 2 })], battleOrder: [character({ plot: 2 })] })), [
     { tone: "good", title: "当前状态无明显冲突", detail: "可以继续推进场景或判定。" },

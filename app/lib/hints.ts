@@ -53,7 +53,7 @@ export function buildSmartHints(input: SmartHintInput): SmartHint[] {
   if (!availableSkillCount) hints.push({ tone: "danger", title: `${selected?.name ?? "角色"} 没有可用特技`, detail: "失去生命力的分野或被麻痹封锁的特技不能用于代用；只有大成功才可能成功。" });
   if (selected?.paralyzedSkills?.length) hints.push({ tone: "warn", title: `${selected.name} 麻痹×${selected.paralyzedSkills.length}`, detail: `被封特技：${selected.paralyzedSkills.map((skill) => `《${skill}》`).join("")}；每巡结束可用《身体操术》判定，成功则全部解除。` });
   if (selected && selected.conditions.includes("麻痹") && !selected.paralyzedSkills?.length) hints.push({ tone: "warn", title: "旧存档未记录被封特技，请补抽", detail: `${selected.name} 带有「麻痹」标签，但没有记录封锁了哪个特技；在变调栏点「麻痹」补抽一层，或点「全部解除」。` });
-  if (selected && selected.plot != null && selected.spentCost >= selected.plot) hints.push({ tone: "warn", title: "本回合花费已用尽", detail: `${selected.name} 已使用 ${selected.spentCost}/${selected.plot}。` });
+  if ((revealed || !tableSafe) && selected && selected.plot != null && selected.spentCost >= selected.plot) hints.push({ tone: "warn", title: "本回合花费已用尽", detail: `${selected.name} 已使用 ${selected.spentCost}/${selected.plot}。` });
   if (dueCues.length) hints.push({ tone: "danger", title: `${dueCues.length} 个主持事件已到点`, detail: tableSafe ? "请切回 GM 视图查看事件内容。" : dueCues.map((cue) => cue.title).join("、") });
   if (!selected?.mission.trim()) hints.push({ tone: "warn", title: "使命尚未填写", detail: "角色卡导入或场景推进前补齐，便于结局检查。" });
   if (!hints.length) hints.push({ tone: "good", title: "当前状态无明显冲突", detail: "可以继续推进场景或判定。" });

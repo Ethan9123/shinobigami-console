@@ -69,6 +69,7 @@ export function useConsoleUi() {
   const [trackerName, setTrackerName] = useState("");
   const [trackerMax, setTrackerMax] = useState(6);
   const [importText, setImportText] = useState("");
+  const workbookImportRequest = useRef(0);
   const [workbookImport, setWorkbookImport] = useState<CharacterWorkbookImport | null>(null);
   const [workbookImportStatus, setWorkbookImportStatus] = useState("可读取带「纯文字化」工作表的 .xlsx 角色卡");
   const [characterLibraryStatus, setCharacterLibraryStatus] = useState("角色库只保存在这台设备；载入时会重置生命力、变调与布局。 ");
@@ -91,7 +92,7 @@ export function useConsoleUi() {
     setEmotionToId, emotionIndex, setEmotionIndex, emotionPositive, setEmotionPositive, intelReceiverId,
     setIntelReceiverId, intelSubjectId, setIntelSubjectId, intelKind, setIntelKind, cueTitle, setCueTitle, cueCycle,
     setCueCycle, cueScene, setCueScene, trackerName, setTrackerName, trackerMax, setTrackerMax, importText,
-    setImportText, workbookImport, setWorkbookImport, workbookImportStatus, setWorkbookImportStatus,
+    setImportText, workbookImportRequest, workbookImport, setWorkbookImport, workbookImportStatus, setWorkbookImportStatus,
     characterLibraryStatus, setCharacterLibraryStatus,
   };
 }
